@@ -1,0 +1,21 @@
+# llmbasedos/iso/systemd_units/mcp-sync.service
+[Unit]
+Description=LLMBasedOS MCP Sync Server
+After=network-online.target mcp-gateway.service
+Wants=mcp-gateway.service
+
+[Service]
+Type=simple
+User=llmuser
+Group=llmgroup
+ExecStart=/usr/bin/python -m llmbasedos.servers.sync.server
+WorkingDirectory=/opt/llmbasedos
+Restart=on-failure
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+Environment="PYTHONPATH=/opt"
+Environment="LLMBDO_RCLONE_CONFIG_PATH=/home/llmuser/.config/rclone/rclone.conf"
+
+[Install]
+WantedBy=multi-user.target

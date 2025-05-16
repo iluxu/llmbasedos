@@ -1,0 +1,74 @@
+{
+    "service_name": "sync",
+    "description": "Manages and executes rclone-based synchronization tasks.",
+    "version": "0.1.1",
+    "capabilities": [
+        {
+            "method": "mcp.sync.listRemotes",
+            "description": "Lists configured rclone remotes.",
+            "params_schema": { "type": "array", "maxItems": 0 },
+            "result_schema": {"type": "array", "items": {"type": "string"}}
+        },
+        {
+            "method": "mcp.sync.listJobs",
+            "description": "Lists currently defined/known sync jobs.",
+            "params_schema": { "type": "array", "maxItems": 0 },
+            "result_schema": {
+                "type": "array", "items": {
+                    "type": "object", "properties": {
+                        "job_id": {"type": "string"},
+                        "description": {"type": "string", "optional": true},
+                        "source": {"type": "string"}, "destination": {"type": "string"},
+                        "status": {"type": "string", "enum": ["idle", "running", "completed", "failed", "stopping", "unknown"]},
+                        "is_running": {"type": "boolean"},
+                        "start_time": {"type": ["string", "null"], "format": "date-time"},
+                        "end_time": {"type": ["string", "null"], "format": "date-time"},
+                        "pid": {"type": ["integer", "null"]}
+                    }, "required": ["job_id", "source", "destination", "status", "is_running"]
+                }
+            }
+        },
+        {
+            "method": "mcp.sync.runJob",
+            "description": "Manually triggers a sync operation.",
+            "params_schema": {
+                "type": "array", "minItems": 1, "maxItems": 1, "items": [{
+                    "type": "object", "properties": {
+                        "job_id_prefix": {"type": "string", "optional": true, "description": "Optional prefix for ad-hoc job ID."},
+                        "source": {"type": "string", "description": "Source path (e.g., 'local:/path' or 'myremote:bucket')."},
+                        "destination": {"type": "string", "description": "Destination path."},
+                        "rclone_args": {"type": "array", "items": {"type": "string"}, "optional": true, "description": "Additional rclone arguments."}
+                    }, "required": ["source", "destination"]
+                }]
+            },
+            "result_schema": {
+                "type": "object", "properties": { "job_id": {"type": "string"}, "status": {"type": "string"}, "message": {"type": "string", "optional": true}, "pid": {"type": ["integer", "null"]}},
+                "required": ["job_id", "status"]
+            }
+        },
+        {
+            "method": "mcp.sync.getJobStatus",
+            "description": "Gets status and logs of a sync job.",
+            "params_schema": { "type": "array", "minItems": 1, "maxItems": 1, "items": [{"type": "string", "description": "The job_id."}]},
+            "result_schema": {
+                "type": "object", "properties": {
+                    "job_id": {"type": "string"}, "is_running": {"type": "boolean"},
+                    "status_message": {"type": "string"},
+                    "start_time": {"type": ["string", "null"], "format": "date-time"},
+                    "end_time": {"type": ["string", "null"], "format": "date-time"},
+                    "return_code": {"type": ["integer", "null"]},
+                    "log_preview": {"type": "array", "items": {"type": "string"}, "optional": true}
+                }, "required": ["job_id", "is_running", "status_message"]
+            }
+        },
+        {
+            "method": "mcp.sync.stopJob",
+            "description": "Stops a running sync job.",
+            "params_schema": { "type": "array", "minItems": 1, "maxItems": 1, "items": [{"type": "string", "description": "The job_id to stop."}]},
+            "result_schema": {
+                "type": "object", "properties": {"job_id": {"type": "string"}, "status": {"type": "string"}, "message": {"type": "string", "optional": true}},
+                "required": ["job_id", "status"]
+            }
+        }
+    ]
+}

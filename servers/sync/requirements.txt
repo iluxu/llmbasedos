@@ -1,0 +1,4 @@
+# llmbasedos/servers/sync/requirements.txt
+# rclone should be installed as a system binary.
+pyyaml>=6.0 # For potential future job definitions from YAML
+# schedule library was removed as job checking is now simpler thread

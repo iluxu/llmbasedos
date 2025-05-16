@@ -1,0 +1,79 @@
+# llmbasedos/.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+develop-eggs/
+eggs/
+sdist/
+var/
+*.sqlite3
+*.db
+instance/
+# Environments
+.env
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# IDE / Editor specific
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+nbproject/
+*.swp
+*~
+*.bak
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# llmbasedos specific build artifacts
+iso/work/
+iso/out/
+iso/airootfs/ # The overlay directory we create during build
+*.iso
+
+# Logs (local dev logs, not persistent service logs if they are elsewhere)
+*.log
+logs/
+*.log.*
+
+# Secrets / Credentials (IMPORTANT!)
+# Add any files that might contain sensitive data
+/etc/llmbasedos/lic.key # If you have a real PRO/ELITE key for testing, don't commit it
+/etc/llmbasedos/mail_accounts.yaml # Contains passwords
+/etc/llmbasedos/gateway.env # If you use an env file for API keys
+
+# FAISS index files (these can be large and are generated)
+/var/lib/llmbasedos/faiss_indices/fs/index.faiss
+/var/lib/llmbasedos/faiss_indices/fs/metadata.json
+# Or more generally:
+# /var/lib/llmbasedos/faiss_indices/**/*.faiss
+# /var/lib/llmbasedos/faiss_indices/**/*.json
+
+# Local test data or large files not meant for repo
+# local_test_data/
+# large_models/
+
+# Coverage reports
+.coverage
+coverage.xml
+htmlcov/
+
+# MyPy cache
+.mypy_cache/
+
+# Pytest cache
+.pytest_cache/

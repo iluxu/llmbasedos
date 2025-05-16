@@ -1,0 +1,22 @@
+# llmbasedos/iso/systemd_units/mcp-gateway.service
+[Unit]
+Description=LLMBasedOS MCP Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=llmuser
+Group=llmgroup # Ensure this group exists and llmuser is a member
+ExecStart=/usr/bin/python -m llmbasedos.gateway.main
+WorkingDirectory=/opt/llmbasedos # All modules are relative to this if PYTHONPATH is set, or CWD is /opt/llmbasedos/gateway
+Restart=on-failure
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+# Set PYTHONPATH so that 'llmbasedos' package is found from /opt
+Environment="PYTHONPATH=/opt"
+# EnvironmentFile=/etc/llmbasedos/gateway.env # For secrets like API keys
+
+[Install]
+WantedBy=multi-user.target

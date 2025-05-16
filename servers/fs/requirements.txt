@@ -1,0 +1,6 @@
+# llmbasedos/servers/fs/requirements.txt
+# watchdog is for gateway's dynamic discovery, not directly used by fs server unless it self-monitors
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.0 # or faiss-gpu
+python-magic>=0.4.27
+numpy>=1.20 # Often a dependency of sentence-transformers/faiss

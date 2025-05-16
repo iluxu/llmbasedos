@@ -1,0 +1,8 @@
+##
+## Arch Linux repository mirrorlist
+## Generated on build machine
+##
+## Worldwide
+Server = http://mirrors.kernel.org/archlinux/$repo/os/$arch
+Server = https://mirror.pkgbuild.com/$repo/os/$arch
+# Add more mirrors as needed
