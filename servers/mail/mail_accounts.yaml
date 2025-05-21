@@ -1,0 +1,29 @@
+# llmbasedos/servers/mail/mail_accounts.yaml
+# Chemin par défaut pour le développement si LLMBDO_MAIL_ACCOUNTS_CONFIG_PATH n'est pas défini.
+# Pour Docker, ce fichier serait monté à /etc/llmbasedos/mail_accounts.yaml (ou autre chemin ENV).
+
+accounts:
+  perso_gmail:
+    email: "mon.adresse@gmail.com"
+    host: "imap.gmail.com"
+    port: 993
+    user: "mon.adresse@gmail.com"
+    password: "VOTRE_MOT_DE_PASSE_APPLICATION_GMAIL" # Important: utiliser un mot de passe d'application pour Gmail
+    ssl: true
+    starttls: false
+    auth_type: "password" # Gmail avec mot de passe d'application
+
+  pro_outlook:
+    email: "mon.adresse.pro@outlook.com"
+    host: "outlook.office365.com"
+    port: 993
+    user: "mon.adresse.pro@outlook.com"
+    password: "VOTRE_MOT_DE_PASSE_PRO"
+    ssl: true
+    starttls: false
+    auth_type: "password"
+    # Pour OAuth2 avec Microsoft, il faudrait ajouter:
+    # auth_type: "oauth2"
+    # client_id: "..."
+    # tenant_id: "..."
+    # etc. (la logique OAuth2 n'est pas implémentée dans le code Python fourni)

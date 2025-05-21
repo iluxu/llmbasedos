@@ -1,0 +1,41 @@
+# llmbasedos/gateway/licence_tiers.yaml
+# Default licence tier definitions. Can be overridden by mounting a custom file.
+FREE:
+  rate_limit_requests: 10
+  rate_limit_window_seconds: 3600 # Per hour
+  allowed_capabilities:
+    - "mcp.hello"
+    - "mcp.listCapabilities"
+    - "mcp.licence.check"
+    - "mcp.fs.list" # Example: Allow listing files for free
+  llm_access: false
+
+PRO:
+  rate_limit_requests: 1000
+  rate_limit_window_seconds: 3600
+  allowed_capabilities:
+    - "mcp.hello"
+    - "mcp.listCapabilities"
+    - "mcp.licence.check"
+    - "mcp.fs.*"
+    - "mcp.mail.list"
+    - "mcp.mail.read"
+    - "mcp.sync.*"
+    - "mcp.agent.listWorkflows"
+    - "mcp.agent.runWorkflow"
+    - "mcp.agent.getWorkflowStatus"
+    - "mcp.llm.chat"
+  llm_access: true
+  allowed_llm_models: # Example: Allow specific models for PRO, or "*" for all configured
+    - "gpt-3.5-turbo"
+    - "local-model" 
+    # Or just: "*"
+
+ELITE:
+  rate_limit_requests: 10000
+  rate_limit_window_seconds: 3600
+  allowed_capabilities:
+    - "*" # All capabilities
+  llm_access: true
+  allowed_llm_models:
+    - "*" # All configured models

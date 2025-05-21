@@ -1,0 +1,72 @@
+# llmbasedos/docker-compose.yml
+version: '3.8'
+
+services:
+  llmbasedos:
+    build: 
+      context: .
+      dockerfile: Dockerfile # Assumes Dockerfile is in the same directory (root of project)
+    image: llmbasedos/appliance:latest # Optional: name the image built
+    container_name: llmbasedos_instance
+    ports:
+      - "${LLMBDO_GATEWAY_EXPOSED_PORT:-8000}:8000" # Expose gateway WebSocket port
+    volumes:
+      # Configuration files (mounted read-only for security if possible)
+      - ./lic.key:/etc/llmbasedos/lic.key:ro 
+      - ./mail_accounts.yaml:/etc/llmbasedos/mail_accounts.yaml:ro # Example, create if needed
+      - ./workflows:/etc/llmbasedos/workflows:ro # Example, create if needed
+      
+      # Persistent data for services
+      - llmbasedos_faiss_index:/var/lib/llmbasedos/faiss_index # FAISS index for fs server
+      # Sockets (if services were separate containers, otherwise internal)
+      # - llmbasedos_mcp_sockets:/run/mcp 
+      
+      # User data to be accessed by mcp.fs (example: map current ./user_files to /mnt/user_data in container)
+      - ./user_files:/mnt/user_data 
+      
+      # Logs (optional, Docker logs can also be used)
+      - llmbasedos_app_logs:/var/log/llmbasedos
+      - llmbasedos_supervisor_logs:/var/log/supervisor
+
+    environment:
+      # Core settings
+      - PYTHONUNBUFFERED=1
+      - LLMBDO_LOG_LEVEL=${LLMBDO_LOG_LEVEL:-INFO}
+      
+      # Gateway settings (defaults are in Dockerfile, can be overridden here)
+      # - LLMBDO_GATEWAY_WEB_PORT=8000 # Internal port, exposed above
+      
+      # Licence path (already set in Dockerfile ENV, but can be confirmed or changed if needed)
+      # - LLMBDO_LICENCE_FILE_PATH=/etc/llmbasedos/lic.key
+      
+      # LLM Provider API Keys (MUST be provided by user)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:?err_openai_api_key_not_set} # Fails if not set
+      # - LLAMA_CPP_URL=http://host.docker.internal:8080 # If llama.cpp runs on host
+      # - LLAMA_CPP_URL=http://llama_cpp_service:8080 # If llama.cpp is another docker service
+
+      # Path for mcp.fs to operate on (must match volume mount)
+      - LLMBDO_FS_DATA_ROOT=/mnt/user_data
+
+      # Paths for other configs (if needed to override Dockerfile defaults)
+      # - LLMBDO_MAIL_ACCOUNTS_CONFIG=/etc/llmbasedos/mail_accounts.yaml
+      # - LLMBDO_AGENT_WORKFLOWS_DIR=/etc/llmbasedos/workflows
+    
+    restart: unless-stopped
+    # stop_grace_period: 1m # How long to wait for services to stop gracefully
+
+volumes:
+  llmbasedos_faiss_index:
+  # llmbasedos_mcp_sockets:
+  llmbasedos_app_logs:
+  llmbasedos_supervisor_logs:
+
+# Example external service (like llama.cpp) if you want to run it via compose too
+# services:
+#   llama_cpp_service:
+#     image: ghcr.io/ggerganov/llama.cpp:server
+#     ports:
+#       - "8081:8080" # Expose llama.cpp on host port 8081
+#     volumes:
+#       - ./models:/models # Mount your GGUF models here
+#     command: -m /models/your-model.gguf -c 2048 --host 0.0.0.0 --port 8080
+#     restart: unless-stopped
