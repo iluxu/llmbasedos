@@ -1,6 +1,0 @@
-# llmbasedos/shell/requirements.txt
-prompt_toolkit>=3.0.30 # Specific version or range
-websockets>=10.0
-rich>=12.0.0 # Specific version or range
-python-json-logger>=2.0.0 # For structured logging
-shlex # Standard library, but good to note

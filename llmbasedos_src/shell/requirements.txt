@@ -1,0 +1,4 @@
+prompt_toolkit>=3.0.0
+websockets>=10.0,<11.0  # Force les versions 10.x
+rich>=10.0.0
+python-json-logger>=2.0.0

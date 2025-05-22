@@ -8,6 +8,8 @@ FREE:
     - "mcp.listCapabilities"
     - "mcp.licence.check"
     - "mcp.fs.list" # Example: Allow listing files for free
+    - "mcp.sync.listRemotes"   # <--- AJOUTER POUR TEST
+    - "mcp.agent.listWorkflows" # <--- AJOUTER POUR TEST    
   llm_access: false
 
 PRO:

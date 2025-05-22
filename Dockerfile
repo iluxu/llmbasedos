@@ -1,129 +1,121 @@
 # llmbasedos/Dockerfile
+
 # --- Base Stage ---
 FROM python:3.10-slim-bullseye AS base
-LABEL maintainer="[Your Name/Email]"
+LABEL maintainer="Luca Mucciaccio/mucciaccioluca@gmail.com"
 LABEL description="LLMBasedOS - MCP Gateway and Services Environment"
 
-# Set environment variables
+# Set core environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=off \
     PIP_DISABLE_PIP_VERSION_CHECK=on \
-    PIP_DEFAULT_TIMEOUT=100 \
-    # Default log level for llmbasedos components
-    LLMBDO_LOG_LEVEL=INFO \
-    # Default paths inside the container (can be overridden by docker run -e or docker-compose)
-    LLMBDO_LICENCE_FILE_PATH=/etc/llmbasedos/lic.key \
+    PIP_DEFAULT_TIMEOUT=100
+
+# Default log level for llmbasedos components
+ENV LLMBDO_LOG_LEVEL=INFO
+
+# Default paths inside the container
+ENV LLMBDO_LICENCE_FILE_PATH=/etc/llmbasedos/lic.key \
     LLMBDO_MCP_CAPS_DIR=/run/mcp \
     LLMBDO_MAIL_ACCOUNTS_CONFIG=/etc/llmbasedos/mail_accounts.yaml \
     LLMBDO_AGENT_WORKFLOWS_DIR=/etc/llmbasedos/workflows \
-    LLMBDO_FS_DATA_ROOT=/mnt/user_data \
-    # Gateway settings
-    LLMBDO_GATEWAY_HOST=0.0.0.0 \
+    LLMBDO_FS_DATA_ROOT=/mnt/user_data
+
+# Gateway settings
+ENV LLMBDO_GATEWAY_HOST=0.0.0.0 \
     LLMBDO_GATEWAY_WEB_PORT=8000 \
-    LLMBDO_GATEWAY_UNIX_SOCKET_PATH=/run/mcp/gateway.sock \
-    # Default LLM Provider
-    LLMBDO_DEFAULT_LLM_PROVIDER=openai \
+    LLMBDO_GATEWAY_UNIX_SOCKET_PATH=/run/mcp/gateway.sock
+
+# Default LLM Provider settings
+ENV LLMBDO_DEFAULT_LLM_PROVIDER=openai \
     OPENAI_DEFAULT_MODEL=gpt-3.5-turbo \
     LLAMA_CPP_URL=http://localhost:8080 \
     LLAMA_CPP_DEFAULT_MODEL=local-model
-    # OPENAI_API_KEY should be provided at runtime
+# OPENAI_API_KEY should be provided at runtime
+
+# Application root directory within the container
+# This directory will be added to PYTHONPATH and will contain the 'llmbasedos' package.
+ENV APP_ROOT_DIR=/opt/app
 
 # System dependencies
-# Add any system libraries needed by Python packages (e.g., for cryptography, Pillow, FAISS, rclone, etc.)
-# libmagic1 for python-magic, libfaiss-dev for faiss-cpu (if building from source, often not needed if installing wheel)
-# rclone needs to be installed.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     supervisor \
     curl \
+    unzip \
     libmagic1 \
-    # Add rclone installation (example: download binary)
-    && curl -O https://downloads.rclone.org/rclone-current-linux-amd64.zip \
-    && unzip rclone-current-linux-amd64.zip \
+    # build-essential cmake # Uncomment if faiss-cpu or other needs them
+    && echo "Installing rclone..." \
+    && curl -fSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o rclone.zip \
+    && unzip rclone.zip \
     && mv rclone-*-linux-amd64/rclone /usr/local/bin/ \
     && chown root:root /usr/local/bin/rclone \
     && chmod 755 /usr/local/bin/rclone \
-    && rm -rf rclone-* \
-    # Add faiss-cpu system package if available via apt, otherwise pip will try to build/fetch wheel
-    # For Bullseye, faiss might not be directly available or outdated. Pip install is usually preferred.
-    # Example for if you had a deb: apt-get install -y ./faiss-cpu.deb
+    && rm -rf rclone.zip rclone-*-linux-amd64 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user for running applications
+# Create non-root user
 ARG APP_USER=llmuser
 ARG APP_UID=1000
 ARG APP_GID=1000
 RUN groupadd -g ${APP_GID} ${APP_USER} && \
     useradd -u ${APP_UID} -g ${APP_GID} -m -s /bin/bash ${APP_USER}
 
-# Create necessary directories and set permissions
-# These will be owned by root initially, runtime volumes will be mounted by user or Docker engine.
-# Supervisor needs /run/supervisor, /var/log/supervisor
-RUN mkdir -p /opt/llmbasedos /run/mcp /run/supervisor \
+# Create necessary base directories
+RUN mkdir -p ${APP_ROOT_DIR} /run/mcp /run/supervisor \
              /etc/llmbasedos /var/log/llmbasedos /var/log/supervisor \
              /var/lib/llmbasedos/faiss_index \
-             /mnt/user_data \
-    && chown -R ${APP_USER}:${APP_USER} /opt/llmbasedos \
-    && chown ${APP_USER}:${APP_USER} /run/mcp \
-    && chown -R ${APP_USER}:${APP_USER} /etc/llmbasedos \
-    && chown -R ${APP_USER}:${APP_USER} /var/log/llmbasedos \
-    && chown -R ${APP_USER}:${APP_USER} /var/lib/llmbasedos \
-    && chown -R ${APP_USER}:${APP_USER} /mnt/user_data
-    # Supervisor logs will be root if supervisor runs as root, or app_user if it runs as app_user.
+             /mnt/user_data
 
-WORKDIR /opt/llmbasedos
+WORKDIR ${APP_ROOT_DIR}
 
 # --- Builder Stage (for Python dependencies) ---
 FROM base AS builder
-# Copy only requirement files first to leverage Docker cache
-COPY gateway/requirements.txt servers/fs/requirements.txt servers/sync/requirements.txt servers/mail/requirements.txt servers/agent/requirements.txt shell/requirements.txt /tmp/reqs/
-# Consolidate requirements or install one by one
+# ARG APP_USER # Not strictly needed in builder unless used for chown or something
+
+# WORKDIR ${APP_ROOT_DIR} # Inherited from base
+COPY llmbasedos_src/requirements.txt /tmp/reqs/core_requirements.txt 
+COPY llmbasedos_src/gateway/requirements.txt /tmp/reqs/gateway_requirements.txt
+COPY llmbasedos_src/servers/fs/requirements.txt /tmp/reqs/servers_fs_requirements.txt
+COPY llmbasedos_src/servers/sync/requirements.txt /tmp/reqs/servers_sync_requirements.txt
+COPY llmbasedos_src/servers/mail/requirements.txt /tmp/reqs/servers_mail_requirements.txt
+COPY llmbasedos_src/servers/agent/requirements.txt /tmp/reqs/servers_agent_requirements.txt
+
 RUN pip install --no-warn-script-location \
-    -r /tmp/reqs/gateway/requirements.txt \
-    -r /tmp/reqs/servers/fs/requirements.txt \
-    -r /tmp/reqs/servers/sync/requirements.txt \
-    -r /tmp/reqs/servers/mail/requirements.txt \
-    -r /tmp/reqs/servers/agent/requirements.txt \
-    # Shell requirements are for external client, not usually needed in server container
-    # -r /tmp/reqs/shell/requirements.txt
-    # If faiss-cpu is not available as system package and needs build tools:
-    # RUN apt-get update && apt-get install -y build-essential cmake && pip install faiss-cpu ... && apt-get purge -y build-essential cmake && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
-    # For now, assume pip can find a wheel for faiss-cpu.
+	-r /tmp/reqs/core_requirements.txt \ 
+    -r /tmp/reqs/gateway_requirements.txt \
+    -r /tmp/reqs/servers_fs_requirements.txt \
+    -r /tmp/reqs/servers_sync_requirements.txt \
+    -r /tmp/reqs/servers_mail_requirements.txt \
+    -r /tmp/reqs/servers_agent_requirements.txt
 
 # --- Final Application Stage ---
 FROM base AS final
-# Copy Python dependencies from builder stage
-COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+ARG APP_USER
 
-# Copy application code
-COPY . /opt/llmbasedos
-RUN chown -R ${APP_USER}:${APP_USER} /opt/llmbasedos
+# WORKDIR ${APP_ROOT_DIR} # Inherited from base
 
-# Copy supervisord configuration
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY --from=builder /usr/local/lib/python3.10/site-packages/ /usr/local/lib/python3.10/site-packages/
+COPY --from=builder /usr/local/bin/ /usr/local/bin/
 
-# Expose gateway port
+COPY ./llmbasedos_src ${APP_ROOT_DIR}/llmbasedos 
+
+ENV PYTHONPATH="${APP_ROOT_DIR}:${PYTHONPATH}"
+
+RUN chown -R ${APP_USER}:${APP_USER} ${APP_ROOT_DIR}/llmbasedos \
+    && chown ${APP_USER}:${APP_USER} /run/mcp \
+    && chown -R ${APP_USER}:${APP_USER} /etc/llmbasedos \
+    && chown -R ${APP_USER}:${APP_USER} /var/log/llmbasedos \
+    && chown -R ${APP_USER}:${APP_USER} /var/log/supervisor \
+    && chown -R ${APP_USER}:${APP_USER} /var/lib/llmbasedos \
+    && chown -R ${APP_USER}:${APP_USER} /mnt/user_data
+
+COPY supervisord.conf /etc/supervisor/conf.d/llmbasedos_supervisor.conf
+
 EXPOSE 8000
 
-# Volume for licence key, configs, logs, data
-# These are suggestions, users will map them.
-VOLUME /etc/llmbasedos
-VOLUME /run/mcp
-VOLUME /var/log/llmbasedos
-VOLUME /var/lib/llmbasedos
-VOLUME /mnt/user_data
+VOLUME /etc/llmbasedos /run/mcp /var/log/llmbasedos /var/log/supervisor /var/lib/llmbasedos /mnt/user_data
 
-# By default, supervisord runs as root to manage processes.
-# Processes themselves will be started as APP_USER via supervisord config.
 USER root
-# USER ${APP_USER} # If supervisord itself can run as non-root and manage child processes effectively.
-                  # Typically, supervisord runs as root.
-
-# Entrypoint
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
-
-# Healthcheck (optional, add a /health endpoint to your gateway for this)
-# HEALTHCHECK --interval=30s --timeout=10s --start-period=60s \
-#   CMD curl -f http://localhost:8000/api/v1/health || exit 1
+CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/conf.d/llmbasedos_supervisor.conf"]

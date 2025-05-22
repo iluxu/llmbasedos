@@ -3,7 +3,7 @@ import logging
 import logging.config
 import os
 
-from .config import LOG_LEVEL_STR, LOG_FORMAT
+from .config import LOGGING_CONFIG, LOG_LEVEL_STR # Supprimer LOG_FORMAT
 
 # Centralized logging configuration for the gateway module
 # This should be called once when the gateway starts.
@@ -47,6 +47,6 @@ def setup_gateway_logging():
     }
     logging.config.dictConfig(LOGGING_CONFIG)
     logger = logging.getLogger("llmbasedos.gateway")
-    logger.info(f"llmbasedos.gateway logging initialized. Level: {LOG_LEVEL_STR}, Format: {LOG_FORMAT}")
+    logger.info(f"llmbasedos.gateway package initialized. Log level: {LOG_LEVEL_STR}")
 
 # setup_gateway_logging() # Call from main.py on startup instead of module import time

@@ -12,7 +12,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 # --- Import Framework ---
-from llmbasedos.mcp_server_framework import MCPServer
+from llmbasedos.mcp_server_framework import MCPServer 
+from llmbasedos.common_utils import validate_mcp_path_param # Assurez-vous que fs_server en a besoin
 
 # --- Server Specific Configuration ---
 SERVER_NAME = "sync"
@@ -115,7 +116,7 @@ def _job_process_checker_thread_target(server: MCPServer):
 
 
 # --- Sync Capability Handlers (decorated) ---
-@sync_server.register("mcp.sync.listRemotes")
+@sync_server.register_method("mcp.sync.listRemotes")
 async def handle_sync_list_remotes(server: MCPServer, request_id: str, params: List[Any]):
     ret_code, stdout, stderr = await server.run_in_executor(
         _run_rclone_cmd_blocking, server, ["listremotes"], "mcp.sync.listRemotes"
@@ -123,7 +124,7 @@ async def handle_sync_list_remotes(server: MCPServer, request_id: str, params: L
     if ret_code != 0: raise RuntimeError(f"Failed to list rclone remotes: {stderr or 'Unknown rclone error'}")
     return [line.strip().rstrip(':') for line in stdout.splitlines() if line.strip()]
 
-@sync_server.register("mcp.sync.listJobs")
+@sync_server.register_method("mcp.sync.listJobs")
 async def handle_sync_list_jobs(server: MCPServer, request_id: str, params: List[Any]):
     # Checker thread updates statuses, this just reads from server.sync_jobs_state
     response = []
@@ -142,7 +143,7 @@ async def handle_sync_list_jobs(server: MCPServer, request_id: str, params: List
         response.append(entry)
     return response
 
-@sync_server.register("mcp.sync.runJob")
+@sync_server.register_method("mcp.sync.runJob")
 async def handle_sync_run_job(server: MCPServer, request_id: str, params: List[Any]):
     job_spec = params[0] # Validated by schema
     job_id_prefix = job_spec.get("job_id_prefix", "adhoc")
@@ -157,7 +158,7 @@ async def handle_sync_run_job(server: MCPServer, request_id: str, params: List[A
     if pid is None: raise RuntimeError(f"Failed to start rclone job '{exec_job_id}': {err_msg}")
     return {"job_id": exec_job_id, "status": "started", "pid": pid, "message": f"Job '{exec_job_id}' started."}
 
-@sync_server.register("mcp.sync.getJobStatus")
+@sync_server.register_method("mcp.sync.getJobStatus")
 async def handle_sync_get_job_status(server: MCPServer, request_id: str, params: List[Any]):
     job_id = params[0]
     if job_id not in server.sync_jobs_state: raise ValueError(f"Job ID '{job_id}' not found.") # type: ignore
@@ -179,7 +180,7 @@ async def handle_sync_get_job_status(server: MCPServer, request_id: str, params:
             "end_time": job_data.get("end_time").isoformat() if job_data.get("end_time") else None,
             "return_code": job_data.get("return_code"), "log_preview": log_preview}
 
-@sync_server.register("mcp.sync.stopJob")
+@sync_server.register_method("mcp.sync.stopJob")
 async def handle_sync_stop_job(server: MCPServer, request_id: str, params: List[Any]):
     job_id = params[0]
     if job_id not in server.rclone_processes_state or server.rclone_processes_state[job_id].poll() is not None: # type: ignore

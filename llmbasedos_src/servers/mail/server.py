@@ -14,6 +14,8 @@ from imapclient import IMAPClient # External dep
 from imapclient.exceptions import IMAPClientError, LoginError # External dep
 from icalendar import Calendar # External dep
 import yaml # External dep for account config
+from llmbasedos.mcp_server_framework import MCPServer 
+from llmbasedos.common_utils import validate_mcp_path_param # Assurez-vous que fs_server en a besoin
 
 # --- Import Framework ---
 # Supposons que ce framework est dans le PYTHONPATH

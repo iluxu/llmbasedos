@@ -3,70 +3,72 @@ version: '3.8'
 
 services:
   llmbasedos:
+    # Pour le développement rapide du code Python, utilisez l'image pré-construite
+    # et montez votre code source local par-dessus celui de l'image.
+    image: llmbasedos/appliance:latest # Assurez-vous que ce tag existe localement
     build: 
       context: .
-      dockerfile: Dockerfile # Assumes Dockerfile is in the same directory (root of project)
-    image: llmbasedos/appliance:latest # Optional: name the image built
+      dockerfile: Dockerfile # Décommentez et utilisez `docker-compose build` 
+                             # SEULEMENT si le Dockerfile ou les requirements.txt changent.
+    
     container_name: llmbasedos_instance
     ports:
-      - "${LLMBDO_GATEWAY_EXPOSED_PORT:-8000}:8000" # Expose gateway WebSocket port
+      - "${LLMBDO_GATEWAY_EXPOSED_PORT:-8000}:8000"
     volumes:
-      # Configuration files (mounted read-only for security if possible)
+      # 1. MONTAGE DU CODE SOURCE LOCAL (pour le développement)
+      #    Le code dans ./llmbasedos_src/ sur votre hôte masquera celui
+      #    copié dans l'image à /opt/app/llmbasedos/
+      - ./llmbasedos_src:/opt/app/llmbasedos 
+
+      # 2. Fichiers de configuration montés depuis l'hôte
       - ./lic.key:/etc/llmbasedos/lic.key:ro 
-      - ./mail_accounts.yaml:/etc/llmbasedos/mail_accounts.yaml:ro # Example, create if needed
-      - ./workflows:/etc/llmbasedos/workflows:ro # Example, create if needed
-      
-      # Persistent data for services
-      - llmbasedos_faiss_index:/var/lib/llmbasedos/faiss_index # FAISS index for fs server
-      # Sockets (if services were separate containers, otherwise internal)
-      # - llmbasedos_mcp_sockets:/run/mcp 
-      
-      # User data to be accessed by mcp.fs (example: map current ./user_files to /mnt/user_data in container)
-      - ./user_files:/mnt/user_data 
-      
-      # Logs (optional, Docker logs can also be used)
+      - ./mail_accounts.yaml:/etc/llmbasedos/mail_accounts.yaml:ro 
+      - ./workflows:/etc/llmbasedos/workflows:ro 
+      - ./supervisord.conf:/etc/supervisor/conf.d/llmbasedos_supervisor.conf:ro # Utilise le nom exact du fichier config copié dans le Dockerfile
+
+      # 3. Données persistantes (volumes nommés Docker)
+      - llmbasedos_faiss_index:/var/lib/llmbasedos/faiss_index
       - llmbasedos_app_logs:/var/log/llmbasedos
       - llmbasedos_supervisor_logs:/var/log/supervisor
 
+      # 4. Données utilisateur pour mcp.fs
+      - ./user_files:/mnt/user_data 
+    
     environment:
-      # Core settings
       - PYTHONUNBUFFERED=1
       - LLMBDO_LOG_LEVEL=${LLMBDO_LOG_LEVEL:-INFO}
-      
-      # Gateway settings (defaults are in Dockerfile, can be overridden here)
-      # - LLMBDO_GATEWAY_WEB_PORT=8000 # Internal port, exposed above
-      
-      # Licence path (already set in Dockerfile ENV, but can be confirmed or changed if needed)
-      # - LLMBDO_LICENCE_FILE_PATH=/etc/llmbasedos/lic.key
-      
-      # LLM Provider API Keys (MUST be provided by user)
-      - OPENAI_API_KEY=${OPENAI_API_KEY:?err_openai_api_key_not_set} # Fails if not set
-      # - LLAMA_CPP_URL=http://host.docker.internal:8080 # If llama.cpp runs on host
-      # - LLAMA_CPP_URL=http://llama_cpp_service:8080 # If llama.cpp is another docker service
-
-      # Path for mcp.fs to operate on (must match volume mount)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:?err_openai_api_key_not_set_in_env_file} # Message d'erreur plus clair
+      # Exemple pour llama.cpp sur l'hôte (si Docker Desktop avec WSL2)
+      # - LLAMA_CPP_URL=http://host.docker.internal:8080 
       - LLMBDO_FS_DATA_ROOT=/mnt/user_data
-
-      # Paths for other configs (if needed to override Dockerfile defaults)
-      # - LLMBDO_MAIL_ACCOUNTS_CONFIG=/etc/llmbasedos/mail_accounts.yaml
-      # - LLMBDO_AGENT_WORKFLOWS_DIR=/etc/llmbasedos/workflows
+      # Les variables d'environnement définies dans le Dockerfile (comme LLMBDO_GATEWAY_WEB_PORT, APP_ROOT_DIR, etc.)
+      # seront utilisées sauf si surchargées ici ou dans un fichier .env.
+      # Il n'est généralement pas nécessaire de les redéfinir ici si les valeurs par défaut du Dockerfile sont bonnes.
     
     restart: unless-stopped
-    # stop_grace_period: 1m # How long to wait for services to stop gracefully
+    stop_grace_period: 1m
 
 volumes:
   llmbasedos_faiss_index:
-  # llmbasedos_mcp_sockets:
   llmbasedos_app_logs:
   llmbasedos_supervisor_logs:
 
-# Example external service (like llama.cpp) if you want to run it via compose too
+# --- Optionnel : Service llama.cpp ---
 # services:
 #   llama_cpp_service:
-#     image: ghcr.io/ggerganov/llama.cpp:server
+#     image: ghcr.io/ggerganov/llama.cpp:server 
+#     # Ou une image spécifique comme `your-repo/llama-cpp-cpu-server:latest`
+#     # Si vous avez besoin de la version CPU uniquement.
+#     # Vous pouvez la construire vous-même ou chercher des images publiques.
+#     # L'image officielle ggerganov/llama.cpp:server peut nécessiter des options de build
+#     # ou des variables d'environnement pour forcer le mode CPU si CUDA est détecté.
+#     # Pour forcer CPU avec l'image officielle, il n'y a pas d'option simple, 
+#     # il faut généralement la compiler sans support GPU ou s'assurer qu'aucun GPU n'est passé.
 #     ports:
-#       - "8081:8080" # Expose llama.cpp on host port 8081
+#       - "${LLAMA_CPP_EXPOSED_PORT:-8081}:8080"
 #     volumes:
-#       - ./models:/models # Mount your GGUF models here
-#     command: -m /models/your-model.gguf -c 2048 --host 0.0.0.0 --port 8080
+#       - ./models:/models:ro # Montez vos modèles GGUF
+#     # Adaptez la commande pour votre modèle et pour s'assurer qu'il tourne en mode CPU si c'est ce que vous voulez.
+#     # L'option --n-gpu-layers 0 force l'utilisation du CPU.
+#     command: -m /models/your-model-name.Q5_K_M.gguf -c 2048 --host 0.0.0.0 --port 8080 --n-gpu-layers 0
 #     restart: unless-stopped
