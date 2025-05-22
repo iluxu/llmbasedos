@@ -95,7 +95,7 @@ The `iso/` directory contains scripts for building a bootable Arch Linux ISO. Th
 
 ## Changelog (Recent Major Changes)
 
-*   **[YYYY-MM-DD] - Dockerization & Framework Refactor**
+*   **[2025-05-22] - Dockerization & Framework Refactor**
     *   Primary deployment model shifted to Docker using a single image managed by Supervisord.
     *   Introduced `MCPServer` framework in `llmbasedos_pkg/mcp_server_framework.py` for all backend servers (`fs`, `sync`, `mail`, `agent`), standardizing initialization, MCP method registration, socket handling, and capability publishing.
     *   Project source code refactored into a main Python package (e.g., `llmbasedos_src/` on host, becoming `llmbasedos` package in Docker) for cleaner imports and module management.
