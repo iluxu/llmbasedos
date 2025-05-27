@@ -134,20 +134,25 @@ class MCPServer:
             return func
         return decorator
 
+# Dans llmbasedos_pkg/mcp_server_framework.py
     async def _validate_params(self, method_name: str, params: Union[List[Any], Dict[str, Any]]) -> Optional[str]:
         schema = self._method_schemas.get(method_name)
-        if not schema: return None
+        if not schema:
+            self.logger.debug(f"No schema found for method '{method_name}', skipping validation.")
+            return None
 
+        self.logger.debug(f"Validating params for '{method_name}'. Schema: {schema}, Instance: {params}")
         try:
             jsonschema.validate(instance=params, schema=schema)
+            self.logger.debug(f"Params for '{method_name}' are valid.")
             return None
-        except jsonschema.exceptions.ValidationError as e:
-            self.logger.warning(f"Invalid params for '{method_name}': {e.message}. Params: {str(params)[:100]}...")
-            error_path_str = " -> ".join(map(str, e.path)) if e.path else "params"
-            return f"Invalid parameter '{error_path_str}': {e.message}"
-        except Exception as e_val:
-            self.logger.error(f"Schema validation error for '{method_name}': {e_val}", exc_info=True)
-            return "Internal error during parameter validation."
+        except jsonschema.exceptions.ValidationError as e_val_error:
+            self.logger.warning(f"jsonschema.exceptions.ValidationError for '{method_name}': {e_val_error.message}. Path: {e_val_error.path}, Validator: {e_val_error.validator}, Schema: {e_val_error.schema}")
+            error_path_str = " -> ".join(map(str, e_val_error.path)) if e_val_error.path else "params"
+            return f"Invalid parameter '{error_path_str}': {e_val_error.message}"
+        except Exception as e_other_val: # Capturer toute autre exception
+            self.logger.error(f"UNEXPECTED validation error for '{method_name}': {type(e_other_val).__name__} - {e_other_val}", exc_info=True)
+            return f"Internal error during parameter validation: {type(e_other_val).__name__}"
 
     async def _handle_single_request(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
         request_id = request_data.get("id")

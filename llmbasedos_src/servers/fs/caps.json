@@ -8,9 +8,7 @@
             "description": "Lists files and directories in a given path. Path must be absolute or will be resolved against server's virtual root if not provided by a path-aware client (like the shell).",
             "params_schema": {
                 "type": "array",
-                "items": [
-                    {"type": "string", "description": "The path to list. Should be absolute within the allowed virtual root."}
-                ],
+                "items": {"type": "string", "description": "The path to list. Should be absolute within the allowed virtual root."},
                 "minItems": 1,
                 "maxItems": 1
             },
@@ -20,11 +18,12 @@
                     "type": "object",
                     "properties": {
                         "name": {"type": "string"},
+                        "path": {"type": "string", "description": "Client-facing path, relative to virtual root, starting with /."},
                         "type": {"type": "string", "enum": ["file", "directory", "symlink", "other", "inaccessible"]},
                         "size": {"type": "integer", "description": "Size in bytes, -1 for directories or if not applicable."},
                         "modified_at": {"type": ["string", "null"], "format": "date-time", "description": "Last modification timestamp in ISO format, or null."}
                     },
-                    "required": ["name", "type", "size", "modified_at"]
+                    "required": ["name", "path", "type", "size", "modified_at"]
                 }
             }
         },
@@ -96,8 +95,8 @@
                 "minItems": 1, "maxItems": 2
             },
             "result_schema": {
-                "type": "object", "properties": {"path": {"type": "string"}, "files_processed_for_embedding": {"type": "integer"}, "total_embeddings_in_index": {"type": "integer"}, "status": {"type": "string"}},
-                "required": ["path", "files_processed_for_embedding", "total_embeddings_in_index", "status"]
+                "type": "object", "properties": {"path_processed": {"type": "string"}, "files_embedded_this_run": {"type": "integer"}, "total_embeddings_in_index": {"type": "integer"}, "status": {"type": "string"}},
+                "required": ["path_processed", "files_embedded_this_run", "total_embeddings_in_index", "status"]
             }
         },
         {
@@ -108,9 +107,10 @@
                 "items": [
                     {"type": "string", "description": "Query text for semantic search."},
                     {"type": "integer", "default": 5, "description": "Number of top results."},
-                    {"type": "string", "optional": true, "description": "Optional absolute path to restrict search scope."}
+                    {"type": "string", "description": "Optional absolute path to restrict search scope. Use null or omit if no scope."}
                 ],
-                "minItems": 1, "maxItems": 3
+                "minItems": 1, 
+                "maxItems": 3 
             },
             "result_schema": {
                 "type": "array", "items": {"type": "object", "properties": {"path": {"type": "string"}, "score": {"type": "number"}, "preview": {"type": "string", "optional": true}}, "required": ["path", "score"]}

@@ -278,6 +278,7 @@ def record_llm_token_usage(licence: LicenceDetails, client_websocket: WebSocket,
 def check_permission(licence: LicenceDetails, capability_method: str, llm_model_requested: Optional[str] = None) -> Tuple[bool, Optional[str], Optional[int]]:
     """Checks capability permission and LLM model permission if applicable."""
     # Capability permission
+    auth_logger.info(f"CHECK_PERM: Received capability_method: '{capability_method}' for tier {licence.tier}") # <<< AJOUTEZ CE LOG
     allowed_caps = licence.allowed_capabilities
     cap_allowed = False
     if "*" in allowed_caps: cap_allowed = True
@@ -306,7 +307,7 @@ def check_permission(licence: LicenceDetails, capability_method: str, llm_model_
     
     return True, None, None # All checks passed
 
-
+auth_logger = logging.getLogger("llmbasedos.gateway.auth")
 def authenticate_and_authorize_request(
     websocket: WebSocket, method_name: str, llm_model_requested: Optional[str] = None, llm_tokens_to_request: int = 0
 ) -> Tuple[Optional[LicenceDetails], Optional[Dict[str, Any]]]:
@@ -314,6 +315,7 @@ def authenticate_and_authorize_request(
     Full auth pipeline for a request.
     Returns (LicenceDetails_if_ok, None) or (None_or_LicenceDetails_for_context, error_dict).
     """
+    auth_logger.info(f"AUTH: Received method to check: '{method_name}' for client {websocket.client if websocket else 'unix_client'}") 
     licence = get_licence_details() # Gets current (possibly cached) licence
 
     # 1. Basic validity (already handled by get_licence_details defaulting to FREE)

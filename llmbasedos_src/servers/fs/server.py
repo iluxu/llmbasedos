@@ -58,39 +58,40 @@ fs_server.faiss_next_id: int = 0 # type: ignore
 
 
 # --- Path Validation Helper for FS Server (using common_utils) ---
+# Dans llmbasedos_pkg/servers/fs/server.py
+# Dans llmbasedos_pkg/servers/fs/server.py
+
 def _validate_fs_path(
-        path_param_from_client: Any, # Ce que le client envoie (ex: "/documents/file.txt" ou "file.txt")
+        path_param_from_client: Any, 
         check_exists: bool = False,
         must_be_dir: Optional[bool] = None,
         must_be_file: Optional[bool] = None
     ) -> Path:
-    """
-    Wrapper for validate_mcp_path_param using this server's FS_VIRTUAL_ROOT_STR.
-    The path_param_from_client is interpreted as relative to the FS_VIRTUAL_ROOT_STR.
-    Example: if FS_VIRTUAL_ROOT_STR is /mnt/user_data, and client sends "/docs/file.txt",
-    it's resolved against /mnt/user_data, effectively becoming /mnt/user_data/docs/file.txt.
-    If client sends "docs/file.txt", it also becomes /mnt/user_data/docs/file.txt.
-    Raises ValueError on failure.
-    """
-    # `validate_mcp_path_param` expects path_param to be relative to virtual_root if not absolute.
-    # If client sends "/foo.txt", it means "foo.txt" inside virtual_root.
-    path_to_validate = str(path_param_from_client).lstrip('/\\') # Remove leading slashes to make it relative to virtual_root
+    
+    if not isinstance(path_param_from_client, str):
+        raise ValueError(f"Path parameter must be a string, got {type(path_param_from_client)}")
 
-    resolved_path, err_msg = validate_mcp_path_param(
-        path_param=path_to_validate, # path_param is now relative to virtual_root
-        virtual_root_str=FS_VIRTUAL_ROOT_STR, # This server's specific root
+    # FS_VIRTUAL_ROOT_STR est la racine absolue sur le disque du serveur (ex: /mnt/user_data)
+    # path_param_from_client est ce que le client pense être le chemin (ex: "/notes.txt" ou "docs/cv.pdf")
+    # On nettoie le '/' initial du client pour le joindre correctement à la racine virtuelle.
+    client_relative_path = path_param_from_client.lstrip('/\\')
+    
+    # On utilise directement la fonction de common_utils.py qui fait le travail de résolution et de vérification.
+    # validate_mcp_path_param s'attend à ce que `path_param_from_wrapper` soit relatif à `virtual_root_str`.
+    resolved_disk_path, err_msg = validate_mcp_path_param(
+        path_param_from_wrapper=client_relative_path, # Ex: "notes.txt" ou "docs/cv.pdf"
+        virtual_root_str=FS_VIRTUAL_ROOT_STR,         # Ex: "/mnt/user_data"
         check_exists=check_exists,
         must_be_dir=must_be_dir,
-        must_be_file=must_be_file,
-        allow_outside_virtual_root=False # FS server MUST confine to its virtual root
+        must_be_file=must_be_file
+        # allow_outside_virtual_root n'est pas pertinent ici, la fonction commune gère le confinement.
     )
     if err_msg:
-        fs_server.logger.warning(f"Path validation failed for '{path_param_from_client}' (resolved against '{FS_VIRTUAL_ROOT_STR}'): {err_msg}")
-        raise ValueError(f"Invalid path or permissions for '{path_param_from_client}'. Details: {err_msg}")
-    if resolved_path is None:
-        fs_server.logger.error(f"Path validation for '{path_param_from_client}' returned no error but no path.")
-        raise ValueError("Path validation failed unexpectedly.")
-    return resolved_path
+        # Utiliser le chemin original du client dans le message d'erreur pour la clarté
+        raise ValueError(f"Error for path '{path_param_from_client}': {err_msg}")
+    if resolved_disk_path is None:
+        raise ValueError(f"Path validation failed unexpectedly for '{path_param_from_client}'.")
+    return resolved_disk_path # Ceci est le chemin absolu sur le disque du serveur, validé.
 
 def _get_client_facing_path(abs_disk_path: Path) -> str:
     """Converts an absolute disk path back to a client-facing path (relative to virtual root, starts with /)."""

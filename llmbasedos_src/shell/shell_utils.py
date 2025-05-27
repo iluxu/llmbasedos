@@ -1,118 +1,128 @@
-# llmbasedos/shell_utils.py
+# llmbasedos_src/shell/shell_utils.py
 import asyncio
 import json
 import uuid
 import logging
-from typing import List, Dict, Any, Optional, AsyncGenerator # Added AsyncGenerator for type hint clarity
+import sys # Pour sys.stdout.flush()
+from typing import List, Dict, Any, Optional
 
-import websockets # type: ignore # For WebSocketClientProtocol type hint
-from rich.console import Console # For Console type hint
+# Importer directement les types nécessaires de websockets (pas besoin pour cette fonction si app gère le ws)
+# from websockets.client import WebSocketClientProtocol # Non utilisé directement ici
+# from websockets.exceptions import ConnectionClosed, ConnectionClosedOK, WebSocketException # Non utilisé directement ici
+
+from rich.console import Console
 from rich.text import Text
 from rich.syntax import Syntax
+from rich.markup import escape # Pour échapper les messages d'erreur
 
-logger = logging.getLogger("llmbasedos.shell.utils") # Shell components share this logger namespace
+# Import TYPE_CHECKING pour l'annotation de type de ShellApp
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .luca import ShellApp # Pour l'annotation de type 'app'
+
+logger = logging.getLogger("llmbasedos.shell.utils")
 
 async def stream_llm_chat_to_console(
-    console: Console, # Passed in
-    mcp_websocket_ref: Optional[websockets.WebSocketClientProtocol], # Passed from ShellApp
-    pending_responses_ref: Dict[str, asyncio.Future],                # Passed from ShellApp
+    app: 'ShellApp', # Instance de ShellApp qui gère la connexion et les queues
     messages: List[Dict[str, str]],
     llm_options: Optional[Dict[str, Any]] = None
-) -> Optional[str]: # Returns full response text or None on error
-    """Handles streaming mcp.llm.chat and printing to console."""
-    if not mcp_websocket_ref or not mcp_websocket_ref.open:
-        console.print("[bold red]LLM Stream: Not connected to gateway.[/]")
-        # Attempt to reconnect should be handled by the caller (ShellApp)
+) -> Optional[str]: # Returns full response text or None on error/no connection
+    """
+    Initiates an mcp.llm.chat stream request via ShellApp,
+    reads chunks from the associated asyncio.Queue, and prints them to the console.
+    """
+    
+    actual_llm_options = {"stream": True, **(llm_options or {})}
+    # Forcer stream=True car cette fonction est pour le streaming vers la console
+    actual_llm_options["stream"] = True 
+
+    # Demander à ShellApp d'initier le stream et de nous donner l'ID de requête et la queue
+    request_id, stream_queue = await app.start_mcp_stream_request(
+        "mcp.llm.chat", [messages, actual_llm_options]
+    )
+
+    if not request_id or not stream_queue:
+        # start_mcp_stream_request a déjà dû afficher une erreur si la connexion a échoué
+        logger.error("LLM Stream: Failed to initiate stream request via ShellApp.")
         return None
 
-    actual_llm_options = {"stream": True} # Force stream for console
-    if llm_options:
-        actual_llm_options.update(llm_options)
-        actual_llm_options["stream"] = True # Ensure stream is not overridden to false
-
-    request_id = str(uuid.uuid4()) # Unique ID for this stream request
-    request_payload = {
-        "jsonrpc": "2.0",
-        "method": "mcp.llm.chat",
-        "params": [messages, actual_llm_options],
-        "id": request_id
-    }
-
-    logger.debug(f"LLM Stream SEND (ID {request_id}) via shell_utils: {str(request_payload)[:200]}...")
-    try:
-        await mcp_websocket_ref.send(json.dumps(request_payload))
-    except websockets.exceptions.ConnectionClosed as e_send:
-        logger.error(f"LLM Stream: Connection closed while sending request: {e_send}")
-        console.print("\n[bold red]LLM Stream: Connection to gateway closed before sending request.[/]")
-        # ShellApp should detect this and mark connection as dead.
-        return None # Indicate failure
-
-    console.print(Text("Assistant: ", style="bold blue"), end="")
+    app.console.print(Text("Assistant: ", style="bold blue"), end="")
     full_response_text = ""
-    stream_active = True
+    
     try:
-        while stream_active:
-            # Each chunk of the stream will use the same request_id.
-            # The ShellApp's _response_listener_task puts responses into a queue for this ID,
-            # or resolves a per-chunk future.
-            # Let's assume a per-chunk future model for now as it's simpler for one stream at a time.
-            chunk_future: asyncio.Future = asyncio.Future()
-            pending_responses_ref[request_id] = chunk_future # For the *next* chunk
-            
-            stream_response_chunk: Dict[str, Any]
+        while True: # Boucle pour consommer les messages de la queue
+            response_json: Optional[Dict[str, Any]] = None # Pour la portée
             try:
-                # Timeout for receiving each chunk from the LLM/gateway
-                stream_response_chunk = await asyncio.wait_for(chunk_future, timeout=120.0) 
+                # Obtenir le prochain chunk depuis la queue avec un timeout
+                response_json = await asyncio.wait_for(stream_queue.get(), timeout=120.0) # Timeout de 2min par chunk
+                stream_queue.task_done() # Indiquer que l'item a été traité
+
             except asyncio.TimeoutError:
-                console.print("\n[bold red]LLM Stream: Timeout waiting for next chunk.[/]")
-                # Do not remove from pending_responses_ref here, listener might still resolve it late.
-                # Or, if listener pops, this is fine. Assuming listener pops.
-                # If listener doesn't pop on timeout, then `pending_responses_ref.pop(request_id, None)` here.
-                # Current luca.py listener pops.
-                stream_active = False; continue # Break outer while
-            # No finally block needed here for pop, listener handles it.
+                app.console.print("\n[[error]LLM Stream[/]]: Timeout waiting for response chunk.")
+                logger.error(f"LLM Stream: Timeout (ID {request_id}).")
+                break # Sortir de la boucle de stream
             
-            if "error" in stream_response_chunk:
-                err_data = stream_response_chunk['error']
-                console.print(f"\n[bold red]LLM Error (Code {err_data.get('code')}): {err_data.get('message', 'Unknown stream error')}[/]")
-                if err_data.get('data'):
-                     console.print(Syntax(json.dumps(err_data['data'], indent=2), "json", theme="native"))
-                return None # Error ends the stream
+            # Vérifier si le listener a mis une exception dans la queue (ex: connexion perdue)
+            if isinstance(response_json, Exception): # Le listener peut mettre une Exception pour signaler la fin
+                logger.error(f"LLM Stream: Received exception from queue (ID {request_id}): {response_json}")
+                app.console.print(f"\n[[error]LLM Stream Error[/]]: {escape(str(response_json))}")
+                break
 
-            result_chunk = stream_response_chunk.get("result", {})
-            chunk_type = result_chunk.get("type")
+            # S'assurer que response_json est bien un dictionnaire (pour mypy et la robustesse)
+            if not isinstance(response_json, dict):
+                logger.error(f"LLM Stream: Received non-dict item from queue (ID {request_id}): {type(response_json)}")
+                app.console.print(f"\n[[error]LLM Stream Error[/]]: Received unexpected data type from gateway.")
+                break
 
-            if chunk_type == "llm_chunk":
-                content_data = result_chunk.get("content", {})
-                delta_content = ""
-                if isinstance(content_data, dict): # OpenAI-like structure
-                    delta_content = content_data.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                # Add other potential structures if gateway normalizes differently
+            logger.debug(f"STREAM_UTIL RCV from Queue (Expected ID {request_id}, Got ID {response_json.get('id')}): {str(response_json)[:200]}")
+            
+            # Normalement, le listener dans ShellApp ne devrait mettre dans la queue que les messages pour cet ID.
+            # Mais une vérification ici peut être une sécurité additionnelle.
+            if response_json.get("id") != request_id:
+                logger.warning(f"STREAM_UTIL: Mismatched ID in stream queue! Expected {request_id}, got {response_json.get('id')}. Ignoring chunk.")
+                continue
+
+            if "error" in response_json:
+                err = response_json["error"]
+                app.console.print(f"\n[[error]LLM Error (Code {err.get('code')})[/]]: {escape(str(err.get('message')))}")
+                if err.get('data'):
+                     app.console.print(Syntax(json.dumps(err['data'], indent=2), "json", theme="native", background_color="default"))
+                break # Erreur termine le stream
+
+            result = response_json.get("result", {})
+            if result.get("type") == "llm_chunk":
+                llm_api_chunk = result.get("content", {}) # C'est le payload brut de l'API LLM
+                delta = ""
+                if isinstance(llm_api_chunk, dict): # Structure type OpenAI
+                    delta = llm_api_chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
                 
-                if delta_content:
-                    console.print(delta_content, end="")
-                    # console.flush() # Rich console auto-flushes with end="" usually
-                    full_response_text += delta_content
-            elif chunk_type == "llm_stream_end":
-                console.print() # Ensure newline after stream fully ends
-                stream_active = False # End the while loop
+                if delta:
+                    app.console.print(delta, end="")
+                    sys.stdout.flush() # Forcer l'affichage immédiat
+                    full_response_text += delta
+            elif result.get("type") == "llm_stream_end":
+                app.console.print() # Nouvelle ligne finale
+                logger.info(f"LLM Stream (ID {request_id}) ended successfully. Total length: {len(full_response_text)}")
+                break # Fin normale du stream
             else:
-                logger.warning(f"LLM Stream: Unexpected chunk type '{chunk_type}' for ID {request_id}: {str(result_chunk)[:100]}")
-                # console.print(f"\n[yellow](Debug: Rcvd stream data: {str(result_chunk)[:100]})[/]")
-                # If it's not an error and not an end, what to do?
-                # Could be metadata. For now, assume only chunk/end/error are valid during active stream.
-                # If protocol allows other messages with same ID during stream, this needs adjustment.
-                # For now, consider unknown type as potentially problematic for this simple handler.
-                # console.print(f"\n[yellow]LLM Stream: Ended due to unexpected data type: {chunk_type}.[/]")
-                # stream_active = False # Option: end stream on unknown type
-
-        return full_response_text
-
-    except websockets.exceptions.ConnectionClosed:
-        console.print("\n[bold red]LLM Stream: Connection to gateway closed.[/]")
-        return full_response_text # Return what was received so far
-    except Exception as e_stream_outer:
-        # This catches errors in the while loop logic itself, or unhandled from await_for
-        console.print(f"\n[bold red]LLM Stream: General error during processing: {e_stream_outer}[/]")
-        logger.error(f"LLM stream processing error (shell_utils): {e_stream_outer}", exc_info=True)
-        return full_response_text
+                logger.warning(f"STREAM_UTIL: Unknown result type from queue: '{result.get('type')}' for ID {request_id}")
+        
+    except Exception as e_outer_stream: # Erreur inattendue dans la logique de la boucle while
+        logger.error(f"STREAM_UTIL: General error processing stream (ID {request_id}): {e_outer_stream}", exc_info=True)
+        app.console.print(f"\n[[error]LLM stream processing error[/]]: {escape(str(e_outer_stream))}")
+    finally:
+        # Le `finally` est pour le `try` qui entoure la boucle `while`.
+        # S'assurer que la queue est retirée des streams actifs de ShellApp si ce n'est pas déjà fait.
+        if request_id and request_id in app.active_streams: # Vérifier si request_id a été défini
+            logger.debug(f"Cleaning up stream queue for request ID {request_id} in stream_llm_chat_to_console's finally block.")
+            # Vider la queue pour éviter que des messages restants ne soient lus par une future instance
+            # ou que le listener ne bloque en essayant de mettre dans une queue pleine.
+            queue_to_clean = app.active_streams.get(request_id)
+            if queue_to_clean:
+                while not queue_to_clean.empty():
+                    try: queue_to_clean.get_nowait(); queue_to_clean.task_done()
+                    except asyncio.QueueEmpty: break
+                    except Exception: break # Pour les autres erreurs de queue
+            app.active_streams.pop(request_id, None) # Enlever la référence de la queue des streams actifs
+            
+    return full_response_text

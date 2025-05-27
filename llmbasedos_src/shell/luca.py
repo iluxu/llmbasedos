@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 import uuid
 import shlex # For parsing command line string
-from typing import Any, Dict, Optional, List, Callable, Awaitable, Set # For type hints
+from typing import Any, Dict, Optional, List, Callable, Awaitable, Set, Tuple # For type hints
 import signal # Import du module signal
 
 import websockets # Main library for WebSocket client
@@ -23,6 +23,8 @@ from prompt_toolkit.styles import Style as PromptStyle
 from rich.console import Console
 from rich.text import Text
 from rich.syntax import Syntax
+from datetime import datetime # Pour le formatage dans _rich_format_mcp_fs_list
+from rich.markup import escape # Pour échapper les messages d'erreur
 
 # --- Import des modules locaux ---
 from . import builtin_cmds 
@@ -47,7 +49,7 @@ def setup_shell_logging():
 
     if formatter_to_use == "json":
         try:
-            from python_json_logger import jsonlogger # type: ignore
+            from python_json_logger import jsonlogger # type: ignore 
             formatter_class = "python_json_logger.jsonlogger.JsonFormatter"
             formatter_details = {"format": "%(asctime)s %(levelname)s %(name)s %(module)s %(funcName)s %(lineno)d %(message)s"}
         except ImportError:
@@ -67,7 +69,7 @@ def setup_shell_logging():
         "root": {"handlers": ["console_stderr"], "level": "WARNING"}, 
         "loggers": {
             "llmbasedos.shell": {"handlers": ["console_stderr"], "level": log_level_int, "propagate": False},
-            "websockets.client": {"handlers": ["console_stderr"], "level": "WARNING", "propagate": False}, # Moins verbeux
+            "websockets.client": {"handlers": ["console_stderr"], "level": "WARNING", "propagate": False},
             "websockets.protocol": {"handlers": ["console_stderr"], "level": "WARNING", "propagate": False},
         }
     }
@@ -81,12 +83,14 @@ setup_shell_logging()
 logger = logging.getLogger("llmbasedos.shell.luca")
 console = Console(stderr=True, force_terminal=True if sys.stderr.isatty() else False)
 
+
 class ShellApp:
     def __init__(self, gateway_url: str, console_instance: Console):
         self.gateway_url: str = gateway_url
         self.console: Console = console_instance
         self.mcp_websocket: Optional[WebSocketClientProtocol] = None
         self.pending_responses: Dict[str, asyncio.Future] = {}
+        self.active_streams: Dict[str, asyncio.Queue] = {} # <<< AJOUTER CETTE LIGNE D'INITIALISATION
         self.available_mcp_commands: List[str] = []
         self.response_listener_task: Optional[asyncio.Task] = None
         self.cwd_state: Path = Path(os.path.expanduser("~")).resolve()
@@ -104,7 +108,7 @@ class ShellApp:
         except Exception as e: self.console.print(f"[[error]Error setting CWD to '{new_path}': {e}[/]]")
 
     def _is_websocket_open(self) -> bool:
-        """Helper to check if websocket is connected and open."""
+        """Helper to check if websocket is connected and actually open."""
         return bool(self.mcp_websocket and self.mcp_websocket.open)
 
     async def _cancel_existing_listener(self):
@@ -137,11 +141,21 @@ class ShellApp:
                     response = json.loads(message_str)
                     logger.debug(f"Gateway RCV (ShellApp): {str(response)[:200]}...")
                     response_id = response.get("id")
+
+                    # Gérer d'abord les streams actifs
+                    if response_id in self.active_streams:
+                        queue = self.active_streams[response_id]
+                        try: await queue.put(response)
+                        except Exception as e_put_q: logger.error(f"Error putting message for stream {response_id} into queue: {e_put_q}")
+                        continue # Message géré par le stream, ne pas chercher de Future
+
+                    # Puis les réponses normales
                     future = self.pending_responses.pop(response_id, None)
                     if future:
                         if not future.done(): future.set_result(response)
                         else: logger.warning(f"Listener: Future for ID {response_id} already done. Ignored.")
-                    # ... (logique pour stream chunks) ...
+                    else:
+                        logger.warning(f"Listener: Rcvd response for unknown/non-stream ID: {response_id}. Data: {str(response)[:100]}")
                 except json.JSONDecodeError: logger.error(f"Listener: Invalid JSON from gateway: {message_str}")
                 except Exception as e_inner: logger.error(f"Listener: Error processing message: {e_inner}", exc_info=True)
         
@@ -155,14 +169,49 @@ class ShellApp:
             logger.info(f"Listener: Task stopped for WebSocket id={id(active_ws)}.")
             if self.mcp_websocket == active_ws and (not self.mcp_websocket or not self.mcp_websocket.open):
                 self.mcp_websocket = None
+            # Annuler toutes les futures et vider les queues de stream
             for req_id, fut in list(self.pending_responses.items()):
                 if not fut.done(): fut.set_exception(RuntimeError(f"Gateway conn lost. Req ID: {req_id}"))
                 self.pending_responses.pop(req_id, None)
+            for req_id, q in list(getattr(self, 'active_streams', {}).items()): # getattr car active_streams est ajouté plus tard
+                try: await q.put(RuntimeError("Gateway connection lost (listener ended)."))
+                except Exception: pass
+            if hasattr(self, 'active_streams'): self.active_streams.clear()
+
+    # Méthode pour démarrer un stream et obtenir sa queue (utilisée par shell_utils)
+    async def start_mcp_stream_request(
+        self, method: str, params: List[Any]
+    ) -> Tuple[Optional[str], Optional[asyncio.Queue]]:
+        if not hasattr(self, 'active_streams'): self.active_streams: Dict[str, asyncio.Queue] = {}
+
+        if self.is_shutting_down or not self._is_websocket_open():
+            if not await self.ensure_connection():
+                self.console.print("[[error]Cannot start stream[/]]: Gateway connection failed.")
+                return None, None
+            if not self._is_websocket_open():
+                self.console.print("[[error]Cannot start stream[/]]: Gateway connection still unavailable.")
+                return None, None
+        
+        request_id = str(uuid.uuid4())
+        payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": request_id}
+        
+        stream_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        self.active_streams[request_id] = stream_queue
+        logger.info(f"Stream queue created for request ID {request_id}")
+
+        try:
+            if not self.mcp_websocket: raise ConnectionError("WebSocket is None before send.")
+            await self.mcp_websocket.send(json.dumps(payload))
+            logger.debug(f"Stream request {request_id} ({method}) sent.")
+            return request_id, stream_queue
+        except Exception as e:
+            logger.error(f"Failed to send stream request {request_id} ({method}): {e}", exc_info=True)
+            self.active_streams.pop(request_id, None)
+            return None, None
 
     async def ensure_connection(self, force_reconnect: bool = False) -> bool:
         if self.is_shutting_down: return False
-        if not force_reconnect and self._is_websocket_open():
-            return True
+        if not force_reconnect and self._is_websocket_open(): return True
         
         action_str = "Reconnecting" if force_reconnect or self.mcp_websocket else "Connecting"
         logger.info(f"{action_str} to MCP Gateway: {self.gateway_url}")
@@ -204,15 +253,13 @@ class ShellApp:
         if self.mcp_websocket and self.mcp_websocket.open:
             try: await self.mcp_websocket.close()
             except: pass
-        self.mcp_websocket = None
-        await self._cancel_existing_listener()
+        self.mcp_websocket = None; await self._cancel_existing_listener()
         return False
 
     async def send_mcp_request(
         self, request_id_override: Optional[str], method: str, params: List[Any], timeout: float = 20.0
     ) -> Optional[Dict[str, Any]]:
-        if self.is_shutting_down: 
-            return {"jsonrpc": "2.0", "id": request_id_override, "error": {"code": -32000, "message": "Shell is shutting down."}}
+        if self.is_shutting_down: return {"jsonrpc": "2.0", "id": request_id_override, "error": {"code": -32000, "message": "Shell is shutting down."}}
         
         if not self._is_websocket_open():
             logger.warning(f"send_mcp_request: No active connection for '{method}'. Attempting to connect...")
@@ -224,8 +271,7 @@ class ShellApp:
         req_id = request_id_override if request_id_override is not None else str(uuid.uuid4())
         payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": req_id}
         
-        current_loop = asyncio.get_running_loop()
-        future: asyncio.Future = current_loop.create_future()
+        current_loop = asyncio.get_running_loop(); future: asyncio.Future = current_loop.create_future()
         self.pending_responses[req_id] = future
 
         try:
@@ -242,8 +288,7 @@ class ShellApp:
         except (ConnectionClosed, ConnectionClosedOK, WebSocketException) as e_ws_send_err: 
             logger.error(f"Connection error during send/wait for {method} (ID {req_id}): {e_ws_send_err}")
             self.pending_responses.pop(req_id, None)
-            # Vérifier si l'objet websocket est l'instance qui a causé l'erreur si l'exception le fournit
-            ws_instance_from_exc = getattr(e_ws_send_err, 'ws_client', getattr(e_ws_send_err, 'protocol', None))
+            ws_instance_from_exc = getattr(e_ws_send_err, 'ws_client', getattr(e_ws_send_err, 'protocol', self.mcp_websocket))
             if self.mcp_websocket and self.mcp_websocket == ws_instance_from_exc :
                  try: await self.mcp_websocket.close()
                  except: pass
@@ -254,48 +299,118 @@ class ShellApp:
             self.pending_responses.pop(req_id, None)
             return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32002, "message": f"Shell client error sending request: {e_send_req}"}}
 
-    async def handle_command_line(self, command_line_str: str):
-        if not command_line_str.strip(): return
+    async def _rich_format_mcp_fs_list(self, result: List[Dict[str,Any]], request_path: str):
+        table = Table(show_header=True, header_style="bold cyan", title=f"Contents of {escape(request_path) if request_path else 'directory'}")
+        table.add_column("Type", width=10); table.add_column("Size", justify="right", width=10)
+        table.add_column("Modified", width=20); table.add_column("Name")
+        for item in sorted(result, key=lambda x: (x.get('type') != 'directory', str(x.get('name','')).lower())):
+            item_type = item.get("type", "other")
+            color = "blue" if item_type == "directory" else "green" if item_type == "file" else "magenta" if item_type == "symlink" else "bright_black"
+            size_val = item.get("size", -1); size_str = ""
+            if item_type == "directory": size_str = "[DIR]"
+            elif isinstance(size_val, int) and size_val >= 0:
+                num = float(size_val); units = ["B", "KB", "MB", "GB", "TB"]; i = 0
+                while num >= 1024 and i < len(units) - 1: num /= 1024.0; i += 1
+                size_str = f"{num:.1f}{units[i]}" if i > 0 else f"{int(num)}{units[i]}"
+            else: size_str = "N/A"
+            mod_iso = item.get("modified_at", "")
+            mod_display = datetime.fromisoformat(mod_iso.replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M:%S") if mod_iso else "N/A"
+            table.add_row(Text(item_type, style=color), size_str, mod_display, Text(escape(item.get("name", "?")), style=color))
+        self.console.print(table)
+
+    async def _rich_format_mcp_fs_read(self, result: Dict[str,Any]):
+        content = result.get("content", ""); encoding = result.get("encoding"); mime_type = result.get("mime_type", "application/octet-stream")
+        if encoding == "text":
+            lexer = "text"; simple_mime = mime_type.split('/')[-1].split('+')[0].lower()
+            known_lexers = ["json", "xml", "python", "markdown", "html", "css", "javascript", "yaml", "c", "cpp", "java", "go", "rust", "php", "ruby", "perl", "sql", "ini", "toml", "diff", "dockerfile"]
+            shell_lexers = ["bash", "sh", "zsh", "fish", "powershell", "batch"]
+            if simple_mime in known_lexers: lexer = simple_mime
+            elif simple_mime in ["x-yaml", "vnd.yaml"]: lexer = "yaml"
+            elif simple_mime in ["x-python", "x-python3"]: lexer = "python"
+            elif simple_mime in ["x-shellscript", "x-sh", "x-bash"]: lexer = "bash"
+            elif simple_mime in shell_lexers : lexer = simple_mime
+            self.console.print(Syntax(content, lexer, theme="native", line_numbers=True, word_wrap=True, background_color="default"))
+        elif encoding == "base64": self.console.print(f"[yellow]Base64 (MIME: {mime_type}):[/yellow]\n{escape(content[:500])}{'...' if len(content)>500 else ''}")
+        else: self.console.print(escape(str(result)))
+
+    async def _format_and_print_mcp_response(self, mcp_method: str, response: Optional[Dict[str,Any]], request_path_for_ls: Optional[str] = None):
+        if not response: self.console.print("[[error]No response or connection failed.[/]]"); return
+        if "error" in response:
+            err = response["error"]
+            self.console.print(f"[[error]MCP Error (Code {err.get('code')})[/]]: {escape(str(err.get('message')))}")
+            if "data" in err: self.console.print(Syntax(json.dumps(err['data'],indent=2),"json",theme="native",background_color="default"))
+        elif "result" in response:
+            result = response["result"]
+            if mcp_method == "mcp.fs.list" and isinstance(result, list):
+                await self._rich_format_mcp_fs_list(result, request_path_for_ls or "current directory")
+            elif mcp_method == "mcp.fs.read" and isinstance(result, dict):
+                await self._rich_format_mcp_fs_read(result)
+            elif isinstance(result, (dict, list)):
+                self.console.print(Syntax(json.dumps(result,indent=2),"json",theme="native",line_numbers=True,background_color="default"))
+            else: self.console.print(escape(str(result)))
+        else: self.console.print(Syntax(json.dumps(response,indent=2),"json",theme="native",background_color="default"))
+
+    async def handle_command_line(self, command_line_str_raw: str):
+        logger.info(f"SHELL RCV RAW: '{command_line_str_raw}'")
+        path_disp = str(self.get_cwd()); home_str = str(Path.home())
+        if path_disp.startswith(home_str) and path_disp != home_str : path_disp = "~" + path_disp[len(home_str):]
+        prompt_variants = [f"{path_disp} luca> ", f"[Disconnected] {path_disp} luca> "]
+        command_line_str = command_line_str_raw
+        for p_variant in prompt_variants:
+            if command_line_str_raw.startswith(p_variant):
+                command_line_str = command_line_str_raw[len(p_variant):].lstrip()
+                logger.info(f"SHELL STRIPPED CMD: '{command_line_str}' (using prefix '{p_variant}')")
+                break
+        else: # Si aucun prompt standard n'est trouvé, on lstrip juste (pour Ctrl+R etc)
+             command_line_str = command_line_str_raw.lstrip()
+             if command_line_str_raw != command_line_str : logger.info(f"SHELL STRIPPED (no specific prompt): '{command_line_str}'")
+
+
+        if not command_line_str.strip(): logger.debug("Command line empty after strip."); return
         try: parts = shlex.split(command_line_str)
-        except ValueError as e_shlex: self.console.print(f"[[error]Parsing error[/]]: {e_shlex}"); return
-        
+        except ValueError as e_shlex: self.console.print(f"[[error]Parsing error[/]]: {escape(str(e_shlex))}"); return
+        if not parts: logger.debug("Empty command after shlex.split."); return
+
         cmd_name = parts[0]; cmd_args_list = parts[1:]
+        logger.info(f"SHELL FINAL CMD_NAME: '{cmd_name}', ARGS: {cmd_args_list}")
 
         if hasattr(builtin_cmds, f"cmd_{cmd_name}"):
             handler = getattr(builtin_cmds, f"cmd_{cmd_name}")
             try: await handler(cmd_args_list, self)
-            except Exception as e_builtin: logger.error(f"Error in builtin '{cmd_name}': {e_builtin}", exc_info=True); self.console.print(f"[[error]Error in '{cmd_name}'[/]]: {e_builtin}")
+            except Exception as e_builtin: logger.error(f"Error in builtin '{cmd_name}': {e_builtin}", exc_info=True); self.console.print(f"[[error]Error in '{cmd_name}'[/]]: {escape(str(e_builtin))}")
             return
 
-        mcp_full_method = cmd_name; parsed_params: List[Any] = []
-        for arg_s in cmd_args_list:
-            try: parsed_params.append(json.loads(arg_s))
+        mcp_full_method = cmd_name; parsed_params: List[Any] = []; request_path_for_ls: Optional[str] = None
+        for i, arg_s in enumerate(cmd_args_list):
+            try: 
+                param_val = json.loads(arg_s)
+                if isinstance(param_val, list) and len(cmd_args_list) == 1:
+                    parsed_params = param_val
+                    if mcp_full_method == "mcp.fs.list" and param_val and isinstance(param_val[0], str): request_path_for_ls = param_val[0]
+                    break
+                else: parsed_params.append(param_val)
             except json.JSONDecodeError:
-                if mcp_full_method.startswith("mcp.fs.") and not arg_s.startswith("/"):
-                    abs_path = (self.get_cwd() / os.path.expanduser(arg_s)).resolve()
+                expanded_arg_s = os.path.expanduser(arg_s) if arg_s.startswith('~') else arg_s
+                if mcp_full_method.startswith("mcp.fs.") and not os.path.isabs(expanded_arg_s):
+                    abs_path = (self.get_cwd() / expanded_arg_s).resolve()
                     parsed_params.append(str(abs_path))
-                else: parsed_params.append(arg_s)
+                    if i == 0 and mcp_full_method == "mcp.fs.list": request_path_for_ls = str(abs_path)
+                else:
+                    parsed_params.append(expanded_arg_s)
+                    if i == 0 and mcp_full_method == "mcp.fs.list" and os.path.isabs(expanded_arg_s): request_path_for_ls = expanded_arg_s
         
         if mcp_full_method == "mcp.llm.chat": 
             self.console.print(Text("Use the 'llm' command for interactive chat streaming. Ex: llm \"Your prompt\"", style="yellow")); return
 
         response = await self.send_mcp_request(None, mcp_full_method, parsed_params)
-        if response: 
-            # Assumer que _rich_format_mcp_response est défini dans builtin_cmds
-            # ou le déplacer dans ShellApp comme méthode _format_and_print_mcp_response
-            if hasattr(builtin_cmds, '_rich_format_mcp_response'):
-                await builtin_cmds._rich_format_mcp_response(self.console, mcp_full_method, response)
-            else: # Fallback simple si la fonction de formatage n'est pas trouvée là
-                self.console.print(response)
-
+        await self._format_and_print_mcp_response(mcp_full_method, response, request_path_for_ls=request_path_for_ls)
 
     async def run_repl(self):
         if not await self.ensure_connection(force_reconnect=True):
             self.console.print("[[error]Failed to connect[/]] to gateway on startup. Try 'connect' or check gateway.")
 
         class AppCompleter(Completer):
-            def __init__(self, shell_app_instance: 'ShellApp'):
-                self.shell_app = shell_app_instance
+            def __init__(self, shell_app_instance: 'ShellApp'): self.shell_app = shell_app_instance
             def get_completions(self, document, complete_event):
                 text_before = document.text_before_cursor.lstrip(); words = text_before.split()
                 if not words or (len(words) == 1 and not text_before.endswith(' ')):
@@ -313,17 +428,16 @@ class ShellApp:
                 path_disp = str(self.get_cwd()); home_str = str(Path.home())
                 if path_disp.startswith(home_str) and path_disp != home_str : path_disp = "~" + path_disp[len(home_str):]
                 
-                prompt_list = [('class:path', f"{path_disp} "), ('class:prompt', 'luca> ')]
-                if not self._is_websocket_open():
-                     prompt_list.insert(0, ('class:disconnected', "[Disconnected] "))
+                prompt_list_parts = [('class:path', f"{path_disp} "), ('class:prompt', 'luca> ')]
+                if not self._is_websocket_open(): prompt_list_parts.insert(0, ('class:disconnected', "[Disconnected] "))
                 
-                cmd_line_str = await pt_session.prompt_async(prompt_list)
+                cmd_line_str = await pt_session.prompt_async(prompt_list_parts)
                 await self.handle_command_line(cmd_line_str)
             except KeyboardInterrupt: self.console.print() ; continue
             except EOFError: self.console.print("Exiting luca-shell (EOF)..."); break
             except Exception as e_repl_loop:
                 logger.critical(f"Critical error in REPL loop: {e_repl_loop}", exc_info=True)
-                self.console.print(f"[[error]REPL Error[/]]: {e_repl_loop}.")
+                self.console.print(f"[[error]REPL Error[/]]: {escape(str(e_repl_loop))}.")
         
         await self.shutdown()
 
@@ -345,49 +459,59 @@ if __name__ == "__main__":
     app = ShellApp(GATEWAY_WS_URL_CONF, console)
     main_event_loop = asyncio.get_event_loop()
     
-    should_exit_event = asyncio.Event()
-    def signal_handler_main(sig, frame): # Renommé pour éviter conflit si un autre module définit signal_handler
+    _should_exit_main_event = asyncio.Event()
+    def _main_signal_handler(sig, frame):
         logger.info(f"Signal {signal.Signals(sig).name} received by main, setting shutdown event...")
-        if not main_event_loop.is_closed(): # S'assurer que la boucle n'est pas déjà fermée
-            main_event_loop.call_soon_threadsafe(should_exit_event.set)
+        if not main_event_loop.is_closed():
+            main_event_loop.call_soon_threadsafe(_should_exit_main_event.set)
 
-    signal.signal(signal.SIGINT, signal_handler_main)
-    signal.signal(signal.SIGTERM, signal_handler_main)
+    # Attacher les gestionnaires de signaux
+    # Ces signaux ne sont généralement pas disponibles/pertinents sur Windows nativement
+    # mais fonctionnent dans WSL ou des environnements POSIX.
+    if os.name == 'posix':
+        signal.signal(signal.SIGINT, _main_signal_handler)
+        signal.signal(signal.SIGTERM, _main_signal_handler)
+    else: # Pour Windows, Ctrl+C lève KeyboardInterrupt, géré dans la boucle REPL.
+        logger.info("Signal handlers for SIGINT/SIGTERM not set (non-POSIX OS or issue). Relying on KeyboardInterrupt/EOFError for exit.")
+
 
     async def main_with_shutdown_wrapper():
         repl_task = main_event_loop.create_task(app.run_repl())
-        shutdown_task = main_event_loop.create_task(should_exit_event.wait())
+        shutdown_signal_task = main_event_loop.create_task(_should_exit_main_event.wait())
         
-        done, pending = await asyncio.wait([repl_task, shutdown_task], return_when=asyncio.FIRST_COMPLETED)
+        done, pending = await asyncio.wait([repl_task, shutdown_signal_task], return_when=asyncio.FIRST_COMPLETED)
         
-        if shutdown_task in done:
-            logger.info("Shutdown event was set, cancelling REPL task.")
+        if shutdown_signal_task in done:
+            logger.info("Shutdown event was set (likely by signal), cancelling REPL task.")
             if not repl_task.done():
                 repl_task.cancel()
                 try: await repl_task
-                except asyncio.CancelledError: logger.info("REPL task cancelled due to shutdown signal.")
+                except asyncio.CancelledError: logger.info("REPL task cancelled successfully due to shutdown signal.")
         
-        if not app.is_shutting_down: # Assurer que shutdown est appelé si REPL finit autrement
+        # S'assurer que ShellApp.shutdown est appelé si run_repl se termine (par EOFError ou autre exception)
+        # ou si un signal a été reçu.
+        if not app.is_shutting_down:
+            logger.info("REPL task finished or shutdown signalled, ensuring ShellApp.shutdown() is called.")
             await app.shutdown()
 
     try:
         main_event_loop.run_until_complete(main_with_shutdown_wrapper())
     except Exception as e_shell_main_exc:
-        logger.critical(f"Luca Shell (main) crashed unexpectedly: {e_shell_main_exc}", exc_info=True)
-        console.print(f"[[error]Shell crashed fatally[/]]: {e_shell_main_exc}")
+        logger.critical(f"Luca Shell (main) crashed OUTSIDE REPL: {e_shell_main_exc}", exc_info=True)
+        console.print(f"[[error]Shell crashed fatally[/]]: {escape(str(e_shell_main_exc))}")
     finally:
         logger.info("Luca Shell (main) final cleanup starting...")
-        # S'assurer que app.shutdown est appelé si ce n'est pas déjà fait.
-        # C'est un peu redondant avec la logique dans main_with_shutdown_wrapper, mais pour être sûr.
+        # Appel final à shutdown si ce n'est pas déjà fait et que la boucle n'est pas fermée
         if hasattr(app, 'is_shutting_down') and not app.is_shutting_down:
-            logger.info("Running app.shutdown() in final finally block.")
+            logger.info("Running app.shutdown() as a final cleanup in main finally block.")
             if not main_event_loop.is_closed():
                 try: main_event_loop.run_until_complete(app.shutdown())
-                except RuntimeError as e_loop_issue: # Peut arriver si la boucle est en train de se fermer
-                     logger.warning(f"Could not run app.shutdown in main_event_loop: {e_loop_issue}. Trying asyncio.run.")
-                     try: asyncio.run(app.shutdown()) # Nouvelle boucle temporaire pour shutdown
-                     except Exception as e_final_shutdown_run: logger.error(f"asyncio.run(app.shutdown) also failed: {e_final_shutdown_run}")
-            else:
-                 logger.warning("Main event loop was closed before final shutdown could complete.")
+                except RuntimeError as e_loop_issue: 
+                     logger.warning(f"Could not run app.shutdown in main_event_loop (finally): {e_loop_issue}.")
+                     # Tenter une dernière fois avec une nouvelle boucle si l'ancienne est inutilisable mais pas fermée
+                     if "cannot be current task" not in str(e_loop_issue).lower() and "no current event loop" not in str(e_loop_issue).lower() :
+                         try: asyncio.run(app.shutdown())
+                         except Exception as e_final_shutdown_run: logger.error(f"asyncio.run(app.shutdown) also failed: {e_final_shutdown_run}")
+            else: logger.warning("Main event loop was closed before final shutdown could complete.")
 
         logger.info("Luca Shell (main) process finished.")

@@ -21,6 +21,7 @@ services:
       - ./llmbasedos_src:/opt/app/llmbasedos 
 
       # 2. Fichiers de configuration montés depuis l'hôte
+      - ./llmbasedos_src/gateway/licence_tiers.yaml:/etc/llmbasedos/licence_tiers.yaml:ro
       - ./lic.key:/etc/llmbasedos/lic.key:ro 
       - ./mail_accounts.yaml:/etc/llmbasedos/mail_accounts.yaml:ro 
       - ./workflows:/etc/llmbasedos/workflows:ro 

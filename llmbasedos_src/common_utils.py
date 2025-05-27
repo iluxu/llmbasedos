@@ -24,63 +24,60 @@ def _is_path_within_virtual_root(path_to_check: Path, virtual_root: Path) -> boo
         return False
 
 
+# llmbasedos_pkg/common_utils.py
+
 def validate_mcp_path_param(
-    path_param: Any, # Should be string, but check type
-    virtual_root_str: Optional[str] = None, # Allow overriding default virtual root per call
-    relative_to_cwd_str: Optional[str] = None,
+    path_param_from_wrapper: Any, # Ex: "mon_doc.txt" ou "sous_dossier/doc.txt" (après lstrip)
+    virtual_root_str: Optional[str] = None, # Ex: "/mnt/user_data" ou "/home/llmuser"
     check_exists: bool = False,
     must_be_dir: Optional[bool] = None,
     must_be_file: Optional[bool] = None
-) -> Tuple[Optional[Path], Optional[str]]: # (Resolved_Path_or_None, Error_Message_or_None)
+    # relative_to_cwd_str n'est plus utilisé car les serveurs MCP n'ont pas de "CWD" pour les requêtes externes.
+    # allow_outside_virtual_root a été enlevé car le serveur FS doit toujours confiner.
+) -> Tuple[Optional[Path], Optional[str]]:
     
-    if not isinstance(path_param, str):
+    if not isinstance(path_param_from_wrapper, str):
         return None, "Path parameter must be a string."
-    if not path_param.strip(): # Check for empty or whitespace-only string
-        return None, "Path parameter cannot be empty."
-
-    current_virtual_root = Path(virtual_root_str).resolve() if virtual_root_str else DEFAULT_VIRTUAL_ROOT
     
-    p: Path
-    try:
-        # Handle absolute paths first
-        if os.path.isabs(path_param):
-            p = Path(path_param).resolve() # Resolve symlinks, normalize '..'
-        elif relative_to_cwd_str:
-            # Path is relative, resolve against provided CWD
-            base_cwd = Path(relative_to_cwd_str).resolve()
-            if not _is_path_within_virtual_root(base_cwd, current_virtual_root):
-                # This check is important: CWD itself must be within the virtual root
-                logger.warning(f"CWD '{base_cwd}' for relative path resolution is outside virtual root '{current_virtual_root}'.")
-                return None, "Cannot resolve relative path: current directory is outside allowed boundaries."
-            p = (base_cwd / path_param).resolve()
-        else:
-            # Path is relative, but no CWD provided. Assume relative to virtual_root.
-            # This case should be used carefully by servers.
-            p = (current_virtual_root / path_param).resolve()
-            logger.debug(f"Relative path '{path_param}' resolved against virtual_root to '{p}'")
+    # Utiliser le virtual_root fourni, ou le défaut global.
+    # Ce virtual_root EST la base absolue sur le disque du serveur.
+    effective_virtual_root = Path(virtual_root_str if virtual_root_str else DEFAULT_VIRTUAL_ROOT_STR).resolve()
+    
+    # path_param_from_wrapper est déjà "nettoyé" de son '/' initial par _validate_fs_path.
+    # Il représente un chemin relatif au virtual_root.
+    # Exemple: path_param_from_wrapper = "docs/notes.txt", effective_virtual_root = Path("/mnt/user_data")
+    # p deviendra Path("/mnt/user_data/docs/notes.txt")
 
-        # Crucial security check: Ensure the final resolved path is within the virtual root.
-        if not _is_path_within_virtual_root(p, current_virtual_root):
-            logger.warning(f"Path access violation: '{p}' (from input '{path_param}') is outside virtual root '{current_virtual_root}'.")
-            return None, f"Path '{path_param}' (resolved to '{p}') is outside allowed access boundaries."
+    try:
+        # Construire le chemin absolu sur le disque en combinant la racine virtuelle et le chemin fourni.
+        # Path.joinpath() ou l'opérateur / gère correctement les cas où path_param_from_wrapper pourrait être vide.
+        # Si path_param_from_wrapper est ".", il pointera vers effective_virtual_root.
+        p = (effective_virtual_root / path_param_from_wrapper).resolve()
+
+        # Sécurité : Vérifier que le chemin résolu `p` est bien DANS ou ÉGAL à `effective_virtual_root`.
+        # C'est la vérification cruciale contre le directory traversal (ex: si path_param_from_wrapper était "../../../etc/passwd").
+        if not _is_path_within_virtual_root(p, effective_virtual_root):
+            logger.warning(f"Path access violation: '{p}' (from input '{path_param_from_wrapper}') is outside virtual root '{effective_virtual_root}'.")
+            # Retourner un message d'erreur qui n'expose pas la structure interne des chemins résolus.
+            return None, f"Path '{path_param_from_wrapper}' is outside allowed access boundaries."
 
         if check_exists and not p.exists():
-            return None, f"Path '{p}' does not exist."
+            return None, f"Path '{path_param_from_wrapper}' (resolved to '{p.relative_to(effective_virtual_root)}' within root) does not exist."
         
-        if p.exists(): # Only check type if it exists and type check requested
+        if p.exists():
             if must_be_dir is True and not p.is_dir():
-                return None, f"Path '{p}' is not a directory."
+                return None, f"Path '{path_param_from_wrapper}' (resolved to '{p.relative_to(effective_virtual_root)}') is not a directory."
             if must_be_file is True and not p.is_file():
-                return None, f"Path '{p}' is not a file."
+                return None, f"Path '{path_param_from_wrapper}' (resolved to '{p.relative_to(effective_virtual_root)}') is not a file."
             
-        return p, None # Return the fully resolved, validated path
+        return p, None # Retourne le chemin absolu résolu sur le disque du serveur
     
-    except ValueError as ve: # e.g. Path(path_param) fails for certain invalid chars on Windows
-        logger.warning(f"Path '{path_param}' is malformed or contains invalid characters: {ve}")
-        return None, f"Path '{path_param}' is malformed."
-    except OSError as ose: # Catch OSErrors during resolution (e.g. permission denied on a component)
-        logger.error(f"OS error validating path '{path_param}': {ose}", exc_info=False) # No need for full stack trace always
-        return None, f"Cannot access path '{path_param}': {ose.strerror}"
-    except Exception as e: # Catch-all for other unexpected errors during path processing
-        logger.error(f"Unexpected error validating path '{path_param}': {e}", exc_info=True)
-        return None, f"Invalid path '{path_param}': {type(e).__name__}"
+    except ValueError as ve: 
+        logger.warning(f"Path '{path_param_from_wrapper}' is malformed: {ve}")
+        return None, f"Path '{path_param_from_wrapper}' is malformed."
+    except OSError as ose:
+        logger.error(f"OS error validating path '{path_param_from_wrapper}' resolved against '{effective_virtual_root}': {ose}", exc_info=False)
+        return None, f"Cannot access path '{path_param_from_wrapper}': {ose.strerror}"
+    except Exception as e: 
+        logger.error(f"Unexpected error validating path '{path_param_from_wrapper}': {e}", exc_info=True)
+        return None, f"Invalid path '{path_param_from_wrapper}': {type(e).__name__}"

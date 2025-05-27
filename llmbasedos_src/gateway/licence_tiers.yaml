@@ -1,16 +1,12 @@
-# llmbasedos/gateway/licence_tiers.yaml
-# Default licence tier definitions. Can be overridden by mounting a custom file.
-FREE:
-  rate_limit_requests: 10
-  rate_limit_window_seconds: 3600 # Per hour
+# ./llmbasedos_src/gateway/licence_tiers.yaml
+tiers:
+  rate_limit_requests: 10000
+  rate_limit_window_seconds: 3600
   allowed_capabilities:
-    - "mcp.hello"
-    - "mcp.listCapabilities"
-    - "mcp.licence.check"
-    - "mcp.fs.list" # Example: Allow listing files for free
-    - "mcp.sync.listRemotes"   # <--- AJOUTER POUR TEST
-    - "mcp.agent.listWorkflows" # <--- AJOUTER POUR TEST    
-  llm_access: false
+    - "*" # All capabilities
+  llm_access: true
+  allowed_llm_models:
+    - "*" # All configured models
 
 PRO:
   rate_limit_requests: 1000

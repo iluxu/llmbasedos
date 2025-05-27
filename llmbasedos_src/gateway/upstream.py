@@ -98,7 +98,7 @@ async def call_llm_chat_completion(
         headers["Authorization"] = f"Bearer {provider_api_key}"
     
     payload = {"model": actual_model_name, "messages": messages, "stream": stream, **kwargs}
-    
+    logger.debug(f"OpenAI Payload: {json.dumps(payload, indent=2)}") # Logguer le payloa
     timeout_seconds = 300.0
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
@@ -124,6 +124,7 @@ async def call_llm_chat_completion(
                                 break
                             try:
                                 chunk = json.loads(line_data)
+                                logger.debug(f"GW RCV CHUNK FROM LLM API: {chunk}") # Logguer le chunk brut de l'API
                                 yield {"event": "chunk", "data": chunk}
                             except json.JSONDecodeError:
                                 logger.warning(f"Failed to decode LLM stream chunk from {provider_type}: {line_data}")
