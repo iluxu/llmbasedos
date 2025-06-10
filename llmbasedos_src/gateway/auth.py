@@ -1,12 +1,12 @@
-# llmbasedos/gateway/auth.py
+# llmbasedos_src/gateway/auth.py
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, Tuple, List # 'Any' est important ici
 import hashlib
-import yaml # For loading licence tiers config
+import yaml 
 
-from fastapi import WebSocket # For client context (IP for rate limiting)
+from fastapi import WebSocket # Utilisé pour l'annotation de type et isinstance
 from pydantic import BaseModel, Field, field_validator
 
 from .config import (
@@ -14,34 +14,30 @@ from .config import (
     JSONRPC_AUTH_ERROR, JSONRPC_RATE_LIMIT_ERROR, JSONRPC_PERMISSION_DENIED_ERROR,
     JSONRPC_LLM_QUOTA_EXCEEDED_ERROR, JSONRPC_LLM_MODEL_NOT_ALLOWED_ERROR
 )
+# Il faudra s'assurer que MockUnixClientContext est défini/importable si on utilise isinstance.
+# Pour l'instant, on se basera sur hasattr pour la détection.
+# from .main import MockUnixClientContext # Si défini dans main.py
 
 logger = logging.getLogger("llmbasedos.gateway.auth")
+# auth_logger = logger # Utiliser 'logger' directement pour la cohérence
 
-# In-memory store for rate limiting & LLM token usage.
-# Key: client_identifier (e.g., licence_key_hash or remote_addr for FREE tier)
-# Value structure:
-# {
-#   "requests": [timestamp1, timestamp2, ...],
-#   "llm_tokens": {"YYYY-MM-DD": daily_token_count_for_this_client}
-# }
 CLIENT_USAGE_RECORDS: Dict[str, Dict[str, Any]] = {}
 LOADED_LICENCE_TIERS: Dict[str, Dict[str, Any]] = {}
 
-
+# Déclaration anticipée pour les annotations de type dans les fonctions globales
 class LicenceDetails(BaseModel):
     tier: str = "FREE"
     key_id: Optional[str] = None
     user_identifier: Optional[str] = None
     expires_at: Optional[datetime] = None
     is_valid: bool = False
-    raw_content: Optional[str] = None # For auditing
+    raw_content: Optional[str] = None
 
-    # Tier-specific settings, populated by _apply_tier_settings
     rate_limit_requests: int = 0
     rate_limit_window_seconds: int = 3600
     allowed_capabilities: List[str] = Field(default_factory=list)
     llm_access: bool = False
-    allowed_llm_models: List[str] = Field(default_factory=list) # Can contain "*"
+    allowed_llm_models: List[str] = Field(default_factory=list)
     max_llm_tokens_per_request: int = 0
     max_llm_tokens_per_day: int = 0
 
@@ -51,12 +47,9 @@ class LicenceDetails(BaseModel):
 
     def _apply_tier_settings(self):
         global LOADED_LICENCE_TIERS
-        if not LOADED_LICENCE_TIERS: # Ensure tiers are loaded
+        if not LOADED_LICENCE_TIERS:
             _load_licence_tiers_config()
-        
-        # Fallback to FREE tier config if current tier is unknown or invalid after parsing
-        tier_config = LOADED_LICENCE_TIERS.get(self.tier, LOADED_LICENCE_TIERS.get("FREE", DEFAULT_LICENCE_TIERS["FREE"]))
-        
+        tier_config = LOADED_LICENCE_TIERS.get(self.tier, LOADED_LICENCE_TIERS.get("FREE", DEFAULT_LICENCE_TIERS.get("FREE", {})))
         self.rate_limit_requests = tier_config.get("rate_limit_requests", 0)
         self.rate_limit_window_seconds = tier_config.get("rate_limit_window_seconds", 3600)
         self.allowed_capabilities = tier_config.get("allowed_capabilities", [])
@@ -69,144 +62,138 @@ class LicenceDetails(BaseModel):
     @classmethod
     def ensure_timezone_aware(cls, v):
         if isinstance(v, datetime) and v.tzinfo is None:
-            return v.replace(tzinfo=timezone.utc) # Assume UTC if naive
+            return v.replace(tzinfo=timezone.utc)
         return v
-
 
 _CACHED_LICENCE: Optional[LicenceDetails] = None
 _LICENCE_FILE_MTIME: Optional[float] = None
 _LICENCE_TIERS_FILE_MTIME: Optional[float] = None
 
 def _load_licence_tiers_config():
-    """Loads licence tier definitions from YAML, merging with defaults."""
     global LOADED_LICENCE_TIERS, _LICENCE_TIERS_FILE_MTIME
-    
     current_mtime = None
     config_exists = False
     if LICENCE_TIERS_CONFIG_PATH.exists():
         try:
             current_mtime = LICENCE_TIERS_CONFIG_PATH.stat().st_mtime
             config_exists = True
-        except FileNotFoundError: # Should not happen if exists() is true, but defensive
-            pass
-
-    if LOADED_LICENCE_TIERS and current_mtime == _LICENCE_TIERS_FILE_MTIME:
-        return # Already loaded and up-to-date
-
+        except FileNotFoundError: pass
+    if LOADED_LICENCE_TIERS and current_mtime == _LICENCE_TIERS_FILE_MTIME and config_exists : # Ajout de config_exists
+        return
     logger.info("Loading/Re-loading licence tier definitions...")
-    LOADED_LICENCE_TIERS = DEFAULT_LICENCE_TIERS.copy() # Start with defaults
+    # S'assurer que DEFAULT_LICENCE_TIERS a bien une entrée "FREE" robuste
+    default_free_tier = {"rate_limit_requests": 1000, "rate_limit_window_seconds": 3600, "allowed_capabilities": ["mcp.hello"], "llm_access": False, "allowed_llm_models": [], "max_llm_tokens_per_request": 0, "max_llm_tokens_per_day": 0}
+    LOADED_LICENCE_TIERS = {k: v.copy() for k, v in DEFAULT_LICENCE_TIERS.items()} # Copie profonde des sous-dictionnaires
+    if "FREE" not in LOADED_LICENCE_TIERS: LOADED_LICENCE_TIERS["FREE"] = default_free_tier.copy()
+
 
     if config_exists:
         try:
-            with LICENCE_TIERS_CONFIG_PATH.open('r') as f:
+            with LICENCE_TIERS_CONFIG_PATH.open('r', encoding='utf-8') as f:
                 custom_tiers = yaml.safe_load(f)
             if isinstance(custom_tiers, dict):
-                # Deep merge custom tiers into defaults (simple dict update here, can be more granular)
                 for tier_name, tier_conf in custom_tiers.items():
                     if tier_name in LOADED_LICENCE_TIERS and isinstance(LOADED_LICENCE_TIERS[tier_name], dict) and isinstance(tier_conf, dict):
                         LOADED_LICENCE_TIERS[tier_name].update(tier_conf)
-                    else:
-                        LOADED_LICENCE_TIERS[tier_name] = tier_conf
+                    else: LOADED_LICENCE_TIERS[tier_name] = tier_conf
                 logger.info(f"Successfully loaded and merged custom tiers from {LICENCE_TIERS_CONFIG_PATH}")
-            else:
-                logger.warning(f"Custom tiers config file {LICENCE_TIERS_CONFIG_PATH} is not a valid YAML dictionary. Using defaults.")
-        except yaml.YAMLError as e:
-            logger.error(f"Error parsing licence tiers YAML {LICENCE_TIERS_CONFIG_PATH}: {e}. Using defaults/previous.")
-        except Exception as e:
-            logger.error(f"Error loading licence tiers file {LICENCE_TIERS_CONFIG_PATH}: {e}. Using defaults/previous.")
-    else:
-        logger.info(f"Licence tiers config file {LICENCE_TIERS_CONFIG_PATH} not found. Using default tiers.")
-    
+            else: logger.warning(f"Custom tiers config {LICENCE_TIERS_CONFIG_PATH} not a valid YAML dict. Using defaults.")
+        except Exception as e: logger.error(f"Error loading/parsing {LICENCE_TIERS_CONFIG_PATH}: {e}. Using defaults/previous.", exc_info=True)
+    else: logger.info(f"Licence tiers config {LICENCE_TIERS_CONFIG_PATH} not found. Using default tiers.")
     _LICENCE_TIERS_FILE_MTIME = current_mtime
 
-
 def _parse_licence_key_content(content: str) -> LicenceDetails:
-    """Parses the raw licence key string. Robust parsing and verification needed for prod."""
     try:
-        # Example format: TIER:USER_ID:EXPIRY_YYYY-MM-DD (or from a signed JWT, etc.)
-        # For now, assume simple YAML or JSON content in the key file for flexibility
-        key_data = yaml.safe_load(content) # Allows more structured key files
-        if not isinstance(key_data, dict):
-            raise ValueError("Licence key content is not a valid YAML/JSON dictionary.")
-
+        key_data = yaml.safe_load(content)
+        if not isinstance(key_data, dict): raise ValueError("Licence key content is not a valid YAML/JSON dictionary.")
         tier = str(key_data.get("tier", "FREE")).upper()
-        user_id = str(key_data.get("user_id", "anonymous"))
-        expiry_str = key_data.get("expires_at") # Expects ISO format string or None
-        key_id_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
+        user_id = str(key_data.get("user_id", "anonymous_licence_user"))
+        expiry_str = key_data.get("expires_at")
+        # Créer un hash stable du contenu de la clé pour key_id
+        key_id_hash = hashlib.sha256(content.strip().encode('utf-8')).hexdigest()[:16]
 
         expires_at_dt: Optional[datetime] = None
         if expiry_str:
             try:
-                expires_at_dt = datetime.fromisoformat(expiry_str.replace("Z", "+00:00"))
-                if expires_at_dt.tzinfo is None: # Ensure tz-aware
-                    expires_at_dt = expires_at_dt.replace(tzinfo=timezone.utc)
+                expires_at_dt = datetime.fromisoformat(str(expiry_str).replace("Z", "+00:00"))
+                if expires_at_dt.tzinfo is None: expires_at_dt = expires_at_dt.replace(tzinfo=timezone.utc)
                 if datetime.now(timezone.utc) > expires_at_dt:
-                    logger.warning(f"Licence key for {user_id} (ID {key_id_hash}) expired on {expiry_str}.")
+                    logger.warning(f"Licence key for {user_id} (KeyID: {key_id_hash}) expired on {expiry_str}.")
                     return LicenceDetails(tier="FREE", key_id=key_id_hash, user_identifier=user_id, expires_at=expires_at_dt, is_valid=False, raw_content=content)
-            except ValueError:
-                logger.error(f"Invalid expiry date format '{expiry_str}' in licence. Ignoring expiry.")
+            except ValueError: logger.error(f"Invalid expiry date format '{expiry_str}' in licence. Ignoring expiry.")
         
-        _load_licence_tiers_config() # Ensure tiers are fresh before checking tier existence
+        _load_licence_tiers_config()
         if tier not in LOADED_LICENCE_TIERS:
-            logger.warning(f"Unknown licence tier '{tier}'. Defaulting to FREE.")
+            logger.warning(f"Unknown licence tier '{tier}' for KeyID {key_id_hash}. Defaulting to FREE.")
+            # Retourner un objet LicenceDetails avec tier="FREE" mais is_valid=False si le tier original n'était pas FREE
+            # pour indiquer une clé invalide. Ou, si on veut que FREE soit toujours valide:
             return LicenceDetails(tier="FREE", key_id=key_id_hash, user_identifier=user_id, expires_at=expires_at_dt, is_valid=(tier=="FREE"), raw_content=content)
 
         logger.info(f"Licence parsed: Tier '{tier}', User '{user_id}', KeyID '{key_id_hash}', Expires '{expiry_str or 'N/A'}'")
         return LicenceDetails(tier=tier, key_id=key_id_hash, user_identifier=user_id, expires_at=expires_at_dt, is_valid=True, raw_content=content)
-    
     except Exception as e:
         logger.error(f"Error parsing licence key content: {e}. Defaulting to FREE tier.", exc_info=True)
-        return LicenceDetails(tier="FREE", is_valid=True, raw_content=content if isinstance(content,str) else str(content))
-
+        return LicenceDetails(tier="FREE", is_valid=True, raw_content=content if isinstance(content,str) else str(content)) # is_valid=True pour FREE tier par défaut
 
 def get_licence_details() -> LicenceDetails:
-    """Loads and caches licence details, reloading if file or tiers config modified."""
-    global _CACHED_LICENCE, _LICENCE_FILE_MTIME, _LICENCE_TIERS_FILE_MTIME
-
-    # Force reload if tiers config changed, as it affects LicenceDetails population
+    global _CACHED_LICENCE, _LICENCE_FILE_MTIME
     _load_licence_tiers_config() 
-
     current_key_mtime = None
     try:
         if LICENCE_FILE_PATH.exists(): current_key_mtime = LICENCE_FILE_PATH.stat().st_mtime
-    except FileNotFoundError: pass # Handled below
+    except FileNotFoundError: pass
 
-    if _CACHED_LICENCE and current_key_mtime == _LICENCE_FILE_MTIME: # Key file unchanged
-        # Tier settings might have changed, re-apply them if _CACHED_LICENCE exists
-        _CACHED_LICENCE._apply_tier_settings() # Ensures it picks up latest tier definitions
+    if _CACHED_LICENCE and current_key_mtime == _LICENCE_FILE_MTIME and _CACHED_LICENCE.tier in LOADED_LICENCE_TIERS: # Vérifier aussi si le tier est toujours valide
+        _CACHED_LICENCE._apply_tier_settings() 
         return _CACHED_LICENCE
 
     if not LICENCE_FILE_PATH.exists():
-        logger.warning(f"Licence file not found at {LICENCE_FILE_PATH}. Using FREE tier.")
+        logger.info(f"Licence file not found at {LICENCE_FILE_PATH}. Using default FREE tier.")
         _CACHED_LICENCE = LicenceDetails(tier="FREE", is_valid=True)
         _LICENCE_FILE_MTIME = None
         return _CACHED_LICENCE
-
     try:
-        logger.info(f"Loading licence key from {LICENCE_FILE_PATH}")
-        content = LICENCE_FILE_PATH.read_text()
+        logger.info(f"Loading/Re-loading licence key from {LICENCE_FILE_PATH}")
+        content = LICENCE_FILE_PATH.read_text(encoding='utf-8')
         _CACHED_LICENCE = _parse_licence_key_content(content)
         _LICENCE_FILE_MTIME = current_key_mtime
         return _CACHED_LICENCE
     except Exception as e:
-        logger.error(f"Failed to load/parse licence key {LICENCE_FILE_PATH}: {e}. Using FREE tier.", exc_info=True)
-        _CACHED_LICENCE = LicenceDetails(tier="FREE", is_valid=True)
-        _LICENCE_FILE_MTIME = current_key_mtime
+        logger.error(f"Failed to load/parse licence key {LICENCE_FILE_PATH}: {e}. Using default FREE tier.", exc_info=True)
+        _CACHED_LICENCE = LicenceDetails(tier="FREE", is_valid=True) # FREE tier est toujours valide
+        _LICENCE_FILE_MTIME = current_key_mtime # Mettre à jour mtime même en cas d'erreur pour éviter relecture constante
         return _CACHED_LICENCE
 
+def _get_client_identifier_for_quota(
+    licence: LicenceDetails, 
+    # client_connection_object: Any, # Plus nécessaire si client_id_for_free_tier_check est toujours fourni
+    client_id_for_free_tier_check: str # Doit être fourni par la fonction appelante (authenticate_and_authorize_request)
+) -> str:
+    """Helper pour obtenir un identifiant client unique pour le suivi des quotas."""
+    if licence.is_valid and licence.key_id:
+        return licence.key_id # La clé de licence a priorité
+    
+    # Si pas de clé de licence valide, utiliser l'identifiant basé sur la source (IP, socket UNIX)
+    if not client_id_for_free_tier_check: # Fallback extrême, ne devrait pas arriver
+        logger.warning("_get_client_identifier_for_quota: client_id_for_free_tier_check was empty, using generic fallback.")
+        return "free_tier_generic_unknown_source"
+    return client_id_for_free_tier_check
 
-def check_rate_limit(licence: LicenceDetails, client_websocket: WebSocket) -> Tuple[bool, Optional[str], Optional[int]]:
-    """Checks API request rate limits. Returns (allowed, error_message, error_code)."""
-    # Elite might still have very high limits, or this check can be skipped.
-    if licence.tier == "ELITE" and licence.rate_limit_requests == 0: # 0 means unlimited for ELITE
+
+def check_rate_limit(
+    licence: LicenceDetails, 
+    client_id_for_free_tier_check: str # Ex: "ip:1.2.3.4" ou "unix:/path/to/socket_client_id"
+) -> Tuple[bool, Optional[str], Optional[int]]:
+    if licence.tier == "ELITE" and licence.rate_limit_requests == 0: # 0 signifie illimité pour ELITE
         return True, None, None
 
-    client_id = licence.key_id if licence.is_valid and licence.key_id else f"ip:{client_websocket.client.host}"
+    # Obtenir l'identifiant client pour les quotas
+    client_id = _get_client_identifier_for_quota(licence, client_id_for_free_tier_check)
     now_utc = datetime.now(timezone.utc)
     
-    if client_id not in CLIENT_USAGE_RECORDS: CLIENT_USAGE_RECORDS[client_id] = {"requests": [], "llm_tokens": {}}
+    if client_id not in CLIENT_USAGE_RECORDS: 
+        CLIENT_USAGE_RECORDS[client_id] = {"requests": [], "llm_tokens": {}}
     
-    # Prune old request timestamps
     window_start = now_utc - timedelta(seconds=licence.rate_limit_window_seconds)
     CLIENT_USAGE_RECORDS[client_id]["requests"] = [ts for ts in CLIENT_USAGE_RECORDS[client_id]["requests"] if ts > window_start]
 
@@ -214,71 +201,87 @@ def check_rate_limit(licence: LicenceDetails, client_websocket: WebSocket) -> Tu
         CLIENT_USAGE_RECORDS[client_id]["requests"].append(now_utc)
         return True, None, None
     else:
-        # Oldest request in window + window duration gives next allowed time
         next_allowed_ts = CLIENT_USAGE_RECORDS[client_id]["requests"][0] + timedelta(seconds=licence.rate_limit_window_seconds)
         wait_seconds = max(0, int((next_allowed_ts - now_utc).total_seconds()))
-        msg = (f"Rate limit exceeded for tier {licence.tier}. "
+        msg = (f"Rate limit exceeded for tier '{licence.tier}' (Client ID: '{client_id}'). "
                f"Limit: {licence.rate_limit_requests} reqs / {licence.rate_limit_window_seconds // 60} mins. "
                f"Try again in {wait_seconds}s.")
-        logger.warning(f"Client {client_id}: {msg}")
+        logger.warning(msg)
         return False, msg, JSONRPC_RATE_LIMIT_ERROR
 
-def check_llm_token_quotas(licence: LicenceDetails, client_websocket: WebSocket, requested_tokens: int) -> Tuple[bool, Optional[str], Optional[int]]:
-    """Checks LLM token quotas. Returns (allowed, error_message, error_code)."""
-    if not licence.llm_access: # Should be caught by permission check already
-        return False, "LLM access denied for this tier.", JSONRPC_PERMISSION_DENIED_ERROR
-
-    if licence.max_llm_tokens_per_request == 0 and licence.max_llm_tokens_per_day == 0 : # 0 means unlimited for this tier for LLM
+def check_llm_token_quotas(
+    licence: LicenceDetails, 
+    requested_tokens: int,
+    client_id_for_free_tier_check: str # Ajouté
+) -> Tuple[bool, Optional[str], Optional[int]]:
+    if not licence.llm_access:
+        return False, f"LLM access denied for tier '{licence.tier}'.", JSONRPC_PERMISSION_DENIED_ERROR
+    # Si les deux limites sont à 0, c'est illimité pour ce tier
+    if licence.max_llm_tokens_per_request == 0 and licence.max_llm_tokens_per_day == 0:
         return True, None, None
 
-    # Per-request limit
     if licence.max_llm_tokens_per_request > 0 and requested_tokens > licence.max_llm_tokens_per_request:
-        msg = f"Requested tokens ({requested_tokens}) exceed per-request limit ({licence.max_llm_tokens_per_request}) for tier {licence.tier}."
+        msg = f"Requested tokens ({requested_tokens}) exceed per-request limit ({licence.max_llm_tokens_per_request}) for tier '{licence.tier}'."
         return False, msg, JSONRPC_LLM_QUOTA_EXCEEDED_ERROR
 
-    # Per-day limit
     if licence.max_llm_tokens_per_day > 0:
-        client_id = licence.key_id if licence.is_valid and licence.key_id else f"ip:{client_websocket.client.host}" # Consistent client ID
+        client_id = _get_client_identifier_for_quota(licence, client_id_for_free_tier_check)
         today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
         if client_id not in CLIENT_USAGE_RECORDS: CLIENT_USAGE_RECORDS[client_id] = {"requests": [], "llm_tokens": {}}
         if "llm_tokens" not in CLIENT_USAGE_RECORDS[client_id]: CLIENT_USAGE_RECORDS[client_id]["llm_tokens"] = {}
-
+        
         current_daily_usage = CLIENT_USAGE_RECORDS[client_id]["llm_tokens"].get(today_str, 0)
         if current_daily_usage + requested_tokens > licence.max_llm_tokens_per_day:
-            msg = (f"Requested tokens ({requested_tokens}) would exceed daily limit ({licence.max_llm_tokens_per_day}). "
-                   f"Used today: {current_daily_usage}. Tier: {licence.tier}.")
+            msg = (f"Requested tokens ({requested_tokens}) for client '{client_id}' would exceed daily LLM limit ({licence.max_llm_tokens_per_day}). "
+                   f"Used today: {current_daily_usage}. Tier: '{licence.tier}'.")
             return False, msg, JSONRPC_LLM_QUOTA_EXCEEDED_ERROR
+    return True, None, None
+
+def record_llm_token_usage(
+    licence: LicenceDetails, 
+    client_connection_object: Any, 
+    tokens_used: int,
+    client_id_for_quota_tracking: str 
+):
+    if not licence.llm_access or tokens_used <= 0: return
+    if licence.max_llm_tokens_per_day == 0 : return 
+
+    client_id = licence.key_id if licence.is_valid and licence.key_id else client_id_for_quota_tracking
     
-    return True, None, None # Allowed
+    if not client_id: 
+        logger.error("record_llm_token_usage: client_id is empty, cannot record usage.")
+        return
 
-def record_llm_token_usage(licence: LicenceDetails, client_websocket: WebSocket, tokens_used: int):
-    """Records LLM token usage after a successful request."""
-    if not licence.llm_access or tokens_used == 0: return
-    if licence.max_llm_tokens_per_day == 0 : return # No daily limit to track against for this tier
-
-    client_id = licence.key_id if licence.is_valid and licence.key_id else f"ip:{client_websocket.client.host}"
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-    if client_id not in CLIENT_USAGE_RECORDS: CLIENT_USAGE_RECORDS[client_id] = {"requests": [], "llm_tokens": {}}
-    if "llm_tokens" not in CLIENT_USAGE_RECORDS[client_id]: CLIENT_USAGE_RECORDS[client_id]["llm_tokens"] = {}
+    if client_id not in CLIENT_USAGE_RECORDS: 
+        CLIENT_USAGE_RECORDS[client_id] = {"requests": [], "llm_tokens": {}}
+    if "llm_tokens" not in CLIENT_USAGE_RECORDS[client_id]: 
+        CLIENT_USAGE_RECORDS[client_id]["llm_tokens"] = {}
     
-    # Clean up old daily token records (e.g., older than a few days) to prevent memory leak
-    # This could be done in a separate periodic task. For now, simple prune on write.
     current_date = datetime.now(timezone.utc).date()
-    for date_str in list(CLIENT_USAGE_RECORDS[client_id]["llm_tokens"].keys()):
-        record_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-        if (current_date - record_date).days > 7: # Keep 7 days of history
-            del CLIENT_USAGE_RECORDS[client_id]["llm_tokens"][date_str]
+    for date_str_key in list(CLIENT_USAGE_RECORDS[client_id]["llm_tokens"].keys()):
+        try:
+            record_date = datetime.strptime(date_str_key, "%Y-%m-%d").date()
+            if (current_date - record_date).days > 7: 
+                del CLIENT_USAGE_RECORDS[client_id]["llm_tokens"][date_str_key]
+        except ValueError: 
+            logger.warning(f"Invalid date key '{date_str_key}' in LLM token usage for '{client_id}'. Removing.")
+            if date_str_key in CLIENT_USAGE_RECORDS[client_id]["llm_tokens"]: # Vérifier avant de supprimer
+                 del CLIENT_USAGE_RECORDS[client_id]["llm_tokens"][date_str_key]
 
-    CLIENT_USAGE_RECORDS[client_id]["llm_tokens"][today_str] = CLIENT_USAGE_RECORDS[client_id]["llm_tokens"].get(today_str, 0) + tokens_used
-    logger.debug(f"Client {client_id} used {tokens_used} LLM tokens. Daily total for {today_str}: {CLIENT_USAGE_RECORDS[client_id]['llm_tokens'][today_str]}")
+    CLIENT_USAGE_RECORDS[client_id]["llm_tokens"][today_str] = \
+        CLIENT_USAGE_RECORDS[client_id]["llm_tokens"].get(today_str, 0) + tokens_used
+    logger.debug(
+        f"LLM Usage: Client '{client_id}' recorded {tokens_used} tokens. Daily total for {today_str}: "
+        f"{CLIENT_USAGE_RECORDS[client_id]['llm_tokens'][today_str]} / {licence.max_llm_tokens_per_day or 'unlimited'}."
+    )
 
-
-def check_permission(licence: LicenceDetails, capability_method: str, llm_model_requested: Optional[str] = None) -> Tuple[bool, Optional[str], Optional[int]]:
-    """Checks capability permission and LLM model permission if applicable."""
-    # Capability permission
-    auth_logger.info(f"CHECK_PERM: Received capability_method: '{capability_method}' for tier {licence.tier}") # <<< AJOUTEZ CE LOG
+def check_permission(
+    licence: LicenceDetails, 
+    capability_method: str, 
+    llm_model_requested: Optional[str] = None
+) -> Tuple[bool, Optional[str], Optional[int]]:
+    logger.info(f"CHECK_PERM: Method: '{capability_method}', Tier: {licence.tier}, AllowedCaps: {licence.allowed_capabilities}")
     allowed_caps = licence.allowed_capabilities
     cap_allowed = False
     if "*" in allowed_caps: cap_allowed = True
@@ -289,86 +292,110 @@ def check_permission(licence: LicenceDetails, capability_method: str, llm_model_
     
     if not cap_allowed:
         msg = f"Permission denied for method '{capability_method}' with tier '{licence.tier}'."
-        logger.warning(msg + f" (Client ID: {licence.key_id or 'anonymous_ip'})")
+        logger.warning(msg + f" (Licence KeyID: {licence.key_id or 'N/A'})")
         return False, msg, JSONRPC_PERMISSION_DENIED_ERROR
 
-    # LLM specific checks if method is mcp.llm.chat
     if capability_method == "mcp.llm.chat":
-        if not licence.llm_access: # General LLM access for tier
+        if not licence.llm_access:
             msg = f"LLM access is disabled for tier '{licence.tier}'."
             return False, msg, JSONRPC_PERMISSION_DENIED_ERROR
-        
-        if llm_model_requested: # If a specific model was requested by client
+        if llm_model_requested: 
             if "*" not in licence.allowed_llm_models and llm_model_requested not in licence.allowed_llm_models:
-                # Could also check against AVAILABLE_LLM_MODELS for existence.
-                # For now, just tier permission.
                 msg = f"LLM model '{llm_model_requested}' not allowed for tier '{licence.tier}'. Allowed: {licence.allowed_llm_models}"
                 return False, msg, JSONRPC_LLM_MODEL_NOT_ALLOWED_ERROR
-    
-    return True, None, None # All checks passed
+    return True, None, None
 
-auth_logger = logging.getLogger("llmbasedos.gateway.auth")
+# auth_logger est déjà défini comme alias de logger plus haut.
 def authenticate_and_authorize_request(
-    websocket: WebSocket, method_name: str, llm_model_requested: Optional[str] = None, llm_tokens_to_request: int = 0
+    # Le premier argument est l'objet de connexion (WebSocket de FastAPI ou notre MockUnixClientContext)
+    client_connection_obj: Any, 
+    method_name: str, 
+    llm_model_requested: Optional[str] = None, 
+    llm_tokens_to_request: int = 0
 ) -> Tuple[Optional[LicenceDetails], Optional[Dict[str, Any]]]:
-    """
-    Full auth pipeline for a request.
-    Returns (LicenceDetails_if_ok, None) or (None_or_LicenceDetails_for_context, error_dict).
-    """
-    auth_logger.info(f"AUTH: Received method to check: '{method_name}' for client {websocket.client if websocket else 'unix_client'}") 
-    licence = get_licence_details() # Gets current (possibly cached) licence
+    
+    client_log_identifier: str
+    client_id_for_free_tier_rate_limit: str 
 
-    # 1. Basic validity (already handled by get_licence_details defaulting to FREE)
-    # If licence.is_valid is False but tier is not FREE, it means an issue like expiry.
-    # The tier settings on 'licence' would reflect FREE if it was downgraded.
+    if hasattr(client_connection_obj, 'client') and hasattr(client_connection_obj.client, 'host'): # Vrai WebSocket
+        client_log_identifier = f"WebSocket {client_connection_obj.client.host}:{client_connection_obj.client.port}"
+        client_id_for_free_tier_rate_limit = f"ip:{client_connection_obj.client.host}"
+    elif hasattr(client_connection_obj, 'peername_str'): # Notre MockUnixClientContext de gateway/main.py
+        client_log_identifier = f"UNIX client {client_connection_obj.peername_str}"
+        # Utiliser un identifiant basé sur le peername pour le rate limiting du client UNIX en tier FREE
+        # Cela suppose que peername_str est suffisamment unique (ex: chemin du socket client si disponible, ou un ID généré)
+        client_id_for_free_tier_rate_limit = f"unix:{client_connection_obj.peername_str}"
+    else:
+        client_log_identifier = "Unknown client type"
+        client_id_for_free_tier_rate_limit = "unknown_client_source_for_ratelimit" # Fallback
+        logger.warning(f"AUTH: Could not determine client type for reliable rate limiting ID: {client_connection_obj}")
 
-    # 2. Rate Limiting for API calls
-    allowed, msg, err_code = check_rate_limit(licence, websocket)
+    logger.info(f"AUTH: Method '{method_name}' requested by client: {client_log_identifier}")
+    
+    licence = get_licence_details() 
+
+    # 1. Vérification de validité de la licence (par exemple, expirée)
+    # _parse_licence_key_content met déjà is_valid=False et tier="FREE" si expirée.
+    # Mais si la clé elle-même est invalide (pas parsable, tier inconnu non FREE),
+    # on pourrait vouloir une erreur d'authentification plus forte.
+    # Pour l'instant, si is_valid=False et tier != "FREE", c'est une clé invalide.
+    if not licence.is_valid and licence.tier != "FREE":
+        logger.warning(f"AUTH: Invalid or expired non-FREE licence key used by {client_log_identifier}. KeyID: {licence.key_id}, Tier in key: {licence.raw_content.split(':')[0] if licence.raw_content else 'N/A'}")
+        return licence, {"code": JSONRPC_AUTH_ERROR, "message": "Invalid or expired licence key."}
+
+    # 2. Rate Limiting
+    allowed, msg, err_code = check_rate_limit(licence, client_id_for_free_tier_rate_limit)
     if not allowed:
-        return licence, {"code": err_code, "message": msg} # Return licence for context if needed
-
-    # 3. Permission check for capability and specific LLM model
+        return licence, {"code": err_code, "message": msg} 
+    
+    # 3. Permission de Capacité
     allowed, msg, err_code = check_permission(licence, method_name, llm_model_requested)
     if not allowed:
         return licence, {"code": err_code, "message": msg}
 
-    # 4. LLM Token Quotas (only if method is mcp.llm.chat and tokens are requested)
-    if method_name == "mcp.llm.chat" and llm_tokens_to_request > 0 : # llm_tokens_to_request could be an estimate
-        # Note: `llm_tokens_to_request` for `mcp.llm.chat` is tricky as actual output tokens are unknown.
-        # This check is more for services that declare input token cost, or for max_per_request on prompt.
-        # For chat, we might only check max_per_day *before* the call, and per_request on prompt length.
-        # The actual usage is recorded *after* the call.
-        # Let's assume llm_tokens_to_request here is a pre-estimate of prompt tokens for per-request check.
-        # For daily quota, we check *before* call if *any* tokens are being requested.
-        
-        allowed, msg, err_code = check_llm_token_quotas(licence, websocket, llm_tokens_to_request)
+    # 4. Quotas LLM (seulement si c'est un appel LLM)
+    if method_name == "mcp.llm.chat" and llm_tokens_to_request > 0 : 
+        allowed, msg, err_code = check_llm_token_quotas(licence, llm_tokens_to_request, client_id_for_free_tier_rate_limit)
         if not allowed:
             return licence, {"code": err_code, "message": msg}
-
-    return licence, None # All checks passed
-
-def get_licence_info_for_mcp_call(client_websocket: WebSocket) -> Dict[str, Any]:
-    """Prepares data for mcp.licence.check endpoint."""
-    licence = get_licence_details() # Current effective licence
     
-    # For displaying "remaining" quota, we need client_id
-    client_id = licence.key_id if licence.is_valid and licence.key_id else f"ip:{client_websocket.client.host}"
+    logger.debug(f"AUTH: Request authorized for method '{method_name}' by {client_log_identifier} (Tier: {licence.tier})")
+    return licence, None # OK
+
+def get_licence_info_for_mcp_call(client_connection_obj: Any) -> Dict[str, Any]:
+    licence = get_licence_details() 
     
-    # API Rate Limit remaining
-    requests_remaining = "N/A"
-    if licence.rate_limit_requests > 0 : # If there is a limit
+    client_id_for_free_tier_display: str
+    if hasattr(client_connection_obj, 'client') and hasattr(client_connection_obj.client, 'host'):
+        client_id_for_free_tier_display = f"ip:{client_connection_obj.client.host}"
+    elif hasattr(client_connection_obj, 'peername_str'):
+        client_id_for_free_tier_display = f"unix:{client_connection_obj.peername_str}"
+    else:
+        client_id_for_free_tier_display = "unknown_client_source_for_display"
+
+    client_id_for_records = _get_client_identifier_for_quota(licence, client_id_for_free_tier_display)
+    
+    requests_remaining_str = "N/A (unlimited or no limit)"
+    if licence.rate_limit_requests > 0 :
         now_utc = datetime.now(timezone.utc)
         window_start = now_utc - timedelta(seconds=licence.rate_limit_window_seconds)
-        client_reqs = CLIENT_USAGE_RECORDS.get(client_id, {}).get("requests", [])
+        # S'assurer que l'entrée existe pour le client
+        if client_id_for_records not in CLIENT_USAGE_RECORDS: CLIENT_USAGE_RECORDS[client_id_for_records] = {"requests": [], "llm_tokens": {}}
+        client_reqs = CLIENT_USAGE_RECORDS[client_id_for_records].get("requests", [])
         valid_reqs_in_window = [ts for ts in client_reqs if ts > window_start]
-        requests_remaining = max(0, licence.rate_limit_requests - len(valid_reqs_in_window))
+        requests_remaining_val = max(0, licence.rate_limit_requests - len(valid_reqs_in_window))
+        requests_remaining_str = str(requests_remaining_val)
 
-    # LLM Tokens per day remaining
-    llm_tokens_today_remaining = "N/A"
+    llm_tokens_today_remaining_str = "N/A (LLM access disabled or unlimited)"
     if licence.llm_access and licence.max_llm_tokens_per_day > 0:
         today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        used_today = CLIENT_USAGE_RECORDS.get(client_id, {}).get("llm_tokens", {}).get(today_str, 0)
-        llm_tokens_today_remaining = max(0, licence.max_llm_tokens_per_day - used_today)
+        if client_id_for_records not in CLIENT_USAGE_RECORDS: CLIENT_USAGE_RECORDS[client_id_for_records] = {"requests": [], "llm_tokens": {}}
+        used_today = CLIENT_USAGE_RECORDS[client_id_for_records].get("llm_tokens", {}).get(today_str, 0)
+        llm_tokens_today_remaining_val = max(0, licence.max_llm_tokens_per_day - used_today)
+        llm_tokens_today_remaining_str = str(llm_tokens_today_remaining_val)
+    elif licence.llm_access and licence.max_llm_tokens_per_day == 0:
+        llm_tokens_today_remaining_str = "unlimited"
+
 
     return {
         "tier": licence.tier,
@@ -378,13 +405,13 @@ def get_licence_info_for_mcp_call(client_websocket: WebSocket) -> Dict[str, Any]
         "expires_at": licence.expires_at.isoformat() if licence.expires_at else None,
         "effective_permissions": licence.allowed_capabilities,
         "quotas": {
-            "api_requests_limit": f"{licence.rate_limit_requests}/{licence.rate_limit_window_seconds // 60}min",
-            "api_requests_remaining_in_window": requests_remaining,
+            "api_requests_limit_human": f"{licence.rate_limit_requests}/{licence.rate_limit_window_seconds // 60}min" if licence.rate_limit_requests > 0 else "unlimited",
+            "api_requests_remaining_in_window": requests_remaining_str,
             "llm_access": licence.llm_access,
             "allowed_llm_models": licence.allowed_llm_models,
             "max_llm_tokens_per_request": licence.max_llm_tokens_per_request if licence.max_llm_tokens_per_request > 0 else "unlimited",
-            "max_llm_tokens_per_day": licence.max_llm_tokens_per_day if licence.max_llm_tokens_per_day > 0 else "unlimited",
-            "llm_tokens_today_remaining": llm_tokens_today_remaining,
+            "max_llm_tokens_per_day_limit": licence.max_llm_tokens_per_day if licence.max_llm_tokens_per_day > 0 else "unlimited",
+            "llm_tokens_today_remaining": llm_tokens_today_remaining_str,
         },
-        "note": "Remaining quotas are specific to your client identifier (licence key or IP)."
+        "note": f"Remaining quotas based on client identifier: '{client_id_for_records}'."
     }

@@ -32,8 +32,9 @@ CAPS_FILE_PATH_STR = str(Path(__file__).parent / "caps.json")
 FS_CUSTOM_ERROR_BASE = -32010 # Base for FS specific errors
 
 # Embedding config: Read from ENV, provide defaults.
-EMBEDDING_MODEL_NAME_CONF = os.getenv("LLMBDO_FS_EMBEDDING_MODEL", 'all-MiniLM-L6-v2' if EMBEDDING_SYSTEM_AVAILABLE else "disabled")
-_faiss_dir_default_str = "/var/lib/llmbasedos/faiss_indices_fs" # Nom plus spécifique pour FS
+# EMBEDDING_MODEL_NAME_CONF = os.getenv("LLMBDO_FS_EMBEDDING_MODEL", 'all-MiniLM-L6-v2' if EMBEDDING_SYSTEM_AVAILABLE else "disabled")
+EMBEDDING_MODEL_NAME_CONF = os.getenv("LLMBDO_FS_EMBEDDING_MODEL", 'paraphrase-multilingual-MiniLM-L12-v2' if EMBEDDING_SYSTEM_AVAILABLE else "disabled")
+_faiss_dir_default_str = "/var/lib/llmbasedos/faiss_index" # Nom plus spécifique pour FS
 FAISS_INDEX_DIR_STR = os.getenv("LLMBDO_FS_FAISS_DIR", _faiss_dir_default_str)
 FAISS_INDEX_DIR_PATH_CONF = Path(FAISS_INDEX_DIR_STR).resolve()
 
@@ -61,37 +62,58 @@ fs_server.faiss_next_id: int = 0 # type: ignore
 # Dans llmbasedos_pkg/servers/fs/server.py
 # Dans llmbasedos_pkg/servers/fs/server.py
 
+# Dans llmbasedos_pkg/servers/fs/server.py
+
+# FS_VIRTUAL_ROOT_STR est défini au niveau du module, ex: "/mnt/user_data"
+# (il est lu depuis os.getenv(..., os.getenv(..., COMMON_DEFAULT_VIRTUAL_ROOT_STR)))
+
+# Dans llmbasedos_pkg/servers/fs/server.py
+
+# FS_VIRTUAL_ROOT_STR est défini au niveau du module, ex: "/mnt/user_data"
+# COMMON_DEFAULT_VIRTUAL_ROOT_STR est importé de common_utils
+
 def _validate_fs_path(
-        path_param_from_client: Any, 
+        path_from_client: str, 
         check_exists: bool = False,
         must_be_dir: Optional[bool] = None,
         must_be_file: Optional[bool] = None
-    ) -> Path:
+    ) -> Path: 
     
-    if not isinstance(path_param_from_client, str):
-        raise ValueError(f"Path parameter must be a string, got {type(path_param_from_client)}")
+    fs_server.logger.debug(f"_validate_fs_path: Validating client_path='{path_from_client}', against FS_VIRTUAL_ROOT_STR='{FS_VIRTUAL_ROOT_STR}'")
+    
+    if not isinstance(path_from_client, str): # Vérification de type
+        raise ValueError(f"Path parameter must be a string, got {type(path_from_client)}")
 
-    # FS_VIRTUAL_ROOT_STR est la racine absolue sur le disque du serveur (ex: /mnt/user_data)
-    # path_param_from_client est ce que le client pense être le chemin (ex: "/notes.txt" ou "docs/cv.pdf")
-    # On nettoie le '/' initial du client pour le joindre correctement à la racine virtuelle.
-    client_relative_path = path_param_from_client.lstrip('/\\')
+    if not path_from_client.startswith("/"):
+        # Si les clients sont censés envoyer des chemins "absolus virtuels"
+        raise ValueError(f"Client path '{path_from_client}' must be absolute from its virtual root (start with '/').")
+
+    # Convertir le chemin "virtuel absolu" du client (ex: "/docs/file.txt")
+    # en un chemin relatif à la racine physique du serveur FS pour common_utils.
+    # Si path_from_client est "/", path_relative_to_fs_root_for_common_util devient "".
+    # Si path_from_client est "/docs/file.txt", il devient "docs/file.txt".
+    path_relative_to_fs_root_for_common_util = path_from_client.lstrip('/')
     
-    # On utilise directement la fonction de common_utils.py qui fait le travail de résolution et de vérification.
-    # validate_mcp_path_param s'attend à ce que `path_param_from_wrapper` soit relatif à `virtual_root_str`.
+    fs_server.logger.debug(f"_validate_fs_path: Passing to common_util: relative_path='{path_relative_to_fs_root_for_common_util}', virtual_root='{FS_VIRTUAL_ROOT_STR}'")
+
     resolved_disk_path, err_msg = validate_mcp_path_param(
-        path_param_from_wrapper=client_relative_path, # Ex: "notes.txt" ou "docs/cv.pdf"
-        virtual_root_str=FS_VIRTUAL_ROOT_STR,         # Ex: "/mnt/user_data"
+        path_param_relative_to_root=path_relative_to_fs_root_for_common_util,
+        virtual_root_str=FS_VIRTUAL_ROOT_STR,         
         check_exists=check_exists,
         must_be_dir=must_be_dir,
         must_be_file=must_be_file
-        # allow_outside_virtual_root n'est pas pertinent ici, la fonction commune gère le confinement.
     )
+
     if err_msg:
-        # Utiliser le chemin original du client dans le message d'erreur pour la clarté
-        raise ValueError(f"Error for path '{path_param_from_client}': {err_msg}")
+        final_error_message = f"Error for client path '{path_from_client}': {err_msg}"
+        fs_server.logger.warning(final_error_message)
+        raise ValueError(final_error_message) 
+        
     if resolved_disk_path is None:
-        raise ValueError(f"Path validation failed unexpectedly for '{path_param_from_client}'.")
-    return resolved_disk_path # Ceci est le chemin absolu sur le disque du serveur, validé.
+        raise ValueError(f"Path validation failed unexpectedly for client path '{path_from_client}'.")
+            
+    fs_server.logger.debug(f"_validate_fs_path: Client path '{path_from_client}' resolved to disk path '{resolved_disk_path}'")
+    return resolved_disk_path
 
 def _get_client_facing_path(abs_disk_path: Path) -> str:
     """Converts an absolute disk path back to a client-facing path (relative to virtual root, starts with /)."""
@@ -113,7 +135,7 @@ def _load_embedding_model_sync(server: MCPServer):
             server.logger.warning("Embedding model name not configured or disabled. Cannot load.")
             server.embedding_enabled = False; return # type: ignore
         try:
-            server.embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME_CONF) # type: ignore
+            server.embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME_CONF, device='cpu') # type: ignore
         except Exception as e:
             server.logger.error(f"Failed to load ST model '{EMBEDDING_MODEL_NAME_CONF}': {e}", exc_info=True)
             server.embedding_enabled = False; raise # type: ignore
@@ -319,73 +341,143 @@ async def handle_fs_delete(server: MCPServer, request_id: Optional[Union[str, in
         raise server.create_custom_error(request_id, 1, f"Permission denied deleting '{client_path_str}'.", {"path": client_path_str}) from pe
 
 
+# Dans llmbasedos_src/servers/fs/server.py
+
+# ... (autres imports et code) ...
+
+# Assurez-vous que FS_CUSTOM_ERROR_BASE est bien défini au niveau du module
+# FS_CUSTOM_ERROR_BASE = -32010 (par exemple)
+
 @fs_server.register_method("mcp.fs.embed")
 async def handle_fs_embed(server: MCPServer, request_id: Optional[Union[str, int]], params: List[Any]):
+    # 1. Vérifier si le système d'embedding est globalement activé
     if not server.embedding_enabled: # type: ignore
-        raise RuntimeError("Embedding system is disabled for this server instance.")
+        # Utiliser create_custom_error pour une réponse JSON-RPC formatée
+        # Le code d'erreur -32014 (si FS_CUSTOM_ERROR_BASE est -32010, alors -32010 - 4)
+        # peut être défini dans vos constantes d'erreur.
+        raise server.create_custom_error(
+            request_id, 
+            4, # Un sous-code d'erreur spécifique pour "embedding désactivé"
+            "Embedding system is disabled for this server instance.", 
+            {"reason": "not_configured_or_failed_startup"}
+        )
     
+    # 2. Extraire et valider les paramètres (le schéma JSON a déjà validé la structure de base)
     client_path_str = params[0]
-    recursive = params[1] if len(params) > 1 else False
+    recursive = params[1] if len(params) > 1 else False # Gérer la valeur par défaut de 'recursive'
+
+    # Valider le chemin client (lèvera ValueError si invalide)
+    # _validate_fs_path est déjà défini dans votre fichier
     target_path_abs = _validate_fs_path(client_path_str, check_exists=True)
 
-    def embed_path_sync():
-        embedding_model = _get_embedding_model_sync(server)
-        faiss_idx = _get_faiss_index_sync(server)
+    # 3. Fonction interne pour l'exécution bloquante
+    def embed_path_sync_internal(): # Renommée pour clarté et éviter conflit de portée
+        # S'assurer que le modèle et l'index sont prêts (normalement fait au démarrage)
+        # Ces fonctions _load... sont celles définies dans fs_server.py pour être appelées par le hook de démarrage
+        # ou ici comme fallback. Elles sont idempotentes (ne rechargent pas si déjà chargé).
+        if server.embedding_model is None: # type: ignore
+            _load_embedding_model_sync(server)
+        if server.faiss_index is None: # type: ignore
+            _load_faiss_index_sync(server)
+        
+        # Re-vérifier après tentative de chargement
+        if not server.embedding_enabled or server.embedding_model is None or server.faiss_index is None: # type: ignore
+            # Ce RuntimeError sera attrapé plus bas et converti en erreur MCP
+            raise RuntimeError("Embedding system components could not be initialized for this request.")
+
+        embedding_model = server.embedding_model # type: ignore
+        faiss_idx = server.faiss_index       # type: ignore
 
         files_to_embed_abs: List[Path] = []
-        if target_path_abs.is_file(): files_to_embed_abs.append(target_path_abs)
+        if target_path_abs.is_file():
+            files_to_embed_abs.append(target_path_abs)
         elif target_path_abs.is_dir():
             glob_pattern = "**/*" if recursive else "*"
             for item_path_abs in target_path_abs.glob(glob_pattern):
-                if item_path_abs.is_file(): files_to_embed_abs.append(item_path_abs)
+                if item_path_abs.is_file():
+                    files_to_embed_abs.append(item_path_abs)
         
         processed_count = 0
-        MAX_FILE_SIZE_BYTES = int(os.getenv("LLMBDO_FS_EMBED_MAX_SIZE_KB", "1024")) * 1024
+        # Vous pouvez rendre MAX_FILE_SIZE_BYTES configurable au niveau de l'instance du serveur si besoin
+        max_file_size_bytes_conf = int(os.getenv("LLMBDO_FS_EMBED_MAX_SIZE_KB", "1024")) * 1024
         new_embeddings_data = []
         new_metadata_entries = []
         
+        # Assurez-vous que server.faiss_index_metadata et server.faiss_next_id sont initialisés (normalement dans _load_faiss_index_sync)
         existing_client_paths = {item['path'] for item in server.faiss_index_metadata} # type: ignore
 
         for file_abs_path in files_to_embed_abs:
-            client_facing_file_path = _get_client_facing_path(file_abs_path)
+            client_facing_file_path = _get_client_facing_path(file_abs_path) # Fonction helper déjà définie
+            
+            # Vérifier si déjà embeddé
             if client_facing_file_path in existing_client_paths:
-                server.logger.debug(f"Skipping already embedded: {client_facing_file_path}")
+                server.logger.debug(f"Embedding: Skipping already indexed file '{client_facing_file_path}'.")
                 continue
+            
             try:
-                if file_abs_path.stat().st_size > MAX_FILE_SIZE_BYTES:
-                    server.logger.warning(f"Skipping large file {file_abs_path} for embedding.")
+                if file_abs_path.stat().st_size == 0:
+                    server.logger.debug(f"Embedding: Skipping empty file '{client_facing_file_path}'.")
                     continue
-                content = file_abs_path.read_text(encoding='utf-8', errors='ignore')
-                if not content.strip(): continue
+                if file_abs_path.stat().st_size > max_file_size_bytes_conf:
+                    server.logger.warning(f"Embedding: Skipping large file '{client_facing_file_path}' (size > {max_file_size_bytes_conf // 1024}KB).")
+                    continue
                 
-                server.logger.debug(f"Embedding: {client_facing_file_path}")
-                embedding_vec = embedding_model.encode([content])[0]
+                # Lire le contenu (pour les fichiers texte, d'autres stratégies pour binaires/PDFs seraient nécessaires)
+                content = file_abs_path.read_text(encoding='utf-8', errors='ignore')
+                if not content.strip(): # Vérifier si le contenu est vide après strip
+                    server.logger.debug(f"Embedding: Skipping file with no effective content '{client_facing_file_path}'.")
+                    continue
+                
+                server.logger.debug(f"Embedding: Processing file '{client_facing_file_path}'.")
+                embedding_vec = embedding_model.encode([content])[0] # Obtenir l'embedding
                 new_embeddings_data.append(embedding_vec.astype('float32'))
                 new_metadata_entries.append({"id": server.faiss_next_id, "path": client_facing_file_path}) # type: ignore
                 server.faiss_next_id += 1 # type: ignore
                 processed_count += 1
             except Exception as e_single_embed:
-                server.logger.error(f"Error embedding file {file_abs_path}: {e_single_embed}", exc_info=True)
+                server.logger.error(f"Embedding: Error processing file '{file_abs_path}' for embedding: {e_single_embed}", exc_info=True)
+                # On continue avec les autres fichiers
         
         if new_embeddings_data:
+            server.logger.info(f"Embedding: Attempting to add {len(new_embeddings_data)} new vectors to FAISS index.")
             try:
                 embeddings_np = np.array(new_embeddings_data) # type: ignore
                 ids_np = np.array([m['id'] for m in new_metadata_entries], dtype='int64') # type: ignore
-                faiss_idx.add_with_ids(embeddings_np, ids_np) # type: ignore
+                
+                faiss_idx.add_with_ids(embeddings_np, ids_np)
                 server.faiss_index_metadata.extend(new_metadata_entries) # type: ignore
-                _save_faiss_index_sync(server)
-                server.logger.info(f"Added {len(new_embeddings_data)} new embeddings. Total: {faiss_idx.ntotal}.") # type: ignore
+                
+                _save_faiss_index_sync(server) # Sauvegarder l'index et les métadonnées après ajout
+                server.logger.info(f"Embedding: Successfully added {len(new_embeddings_data)} new embeddings. Total in index: {faiss_idx.ntotal}.")
             except Exception as e_faiss:
-                server.logger.error(f"Error adding embeddings to FAISS: {e_faiss}", exc_info=True)
-                raise RuntimeError(f"Failed to update search index: {e_faiss}")
+                server.logger.error(f"Embedding: FAISS error while adding new embeddings: {e_faiss}", exc_info=True)
+                # Ce RuntimeError sera attrapé et converti en erreur MCP
+                raise RuntimeError(f"Failed to update search index after processing files: {e_faiss}")
+        else:
+            server.logger.info("Embedding: No new files were processed for embedding in this run.")
         
-        return {"path_processed": client_path_str, "files_embedded_this_run": processed_count,
-                "total_embeddings_in_index": faiss_idx.ntotal, "status": "success"} # type: ignore
+        return {
+            "path_processed": client_path_str, 
+            "files_embedded_this_run": processed_count,
+            "total_embeddings_in_index": faiss_idx.ntotal if faiss_idx else 0, 
+            "status": "success"
+        }
 
-    try: return await server.run_in_executor(embed_path_sync)
-    except ValueError as ve: raise
+    # 4. Exécuter la fonction bloquante dans l'executor et gérer les exceptions
+    try:
+        return await server.run_in_executor(embed_path_sync_internal)
+    except ValueError as ve: # Typiquement de _validate_fs_path
+        # Le framework MCPServer convertira ValueError en une erreur JSON-RPC -320xx appropriée
+        # (ou le code de base du serveur - 1 par défaut)
+        raise 
     except RuntimeError as rte:
+        # Erreur personnalisée pour les problèmes d'embedding/index
+        # Le code d'erreur -32012 (si FS_CUSTOM_ERROR_BASE est -32010, alors -32010 - 2)
         raise server.create_custom_error(request_id, 2, str(rte), {"path": client_path_str}) from rte
+    except Exception as e_embed_handler: # Toute autre exception inattendue
+        server.logger.error(f"Unexpected error in mcp.fs.embed handler for path '{client_path_str}': {e_embed_handler}", exc_info=True)
+        # Erreur interne générique
+        raise server.create_custom_error(request_id, FS_CUSTOM_ERROR_BASE - 99, f"Internal server error during embedding operation: {type(e_embed_handler).__name__}")
 
 
 @fs_server.register_method("mcp.fs.search")
@@ -464,44 +556,34 @@ async def handle_fs_search(server: MCPServer, request_id: Optional[Union[str, in
 
 
 # --- Main Entry Point ---
+# llmbasedos_pkg/servers/fs/server.py
+# ... (tous les imports, définitions de constantes, instance fs_server, handlers, hooks) ...
+
+# Le if __name__ == "__main__": doit uniquement contenir l'appel pour démarrer le serveur
 if __name__ == "__main__":
-    # This block is for direct execution of this file, e.g., for testing outside supervisord/Docker.
-    # It needs its own logger setup if MCPServer's logger isn't globally configured.
-    
-    # Determine the FS_VIRTUAL_ROOT_STR for standalone execution
-    # This should match how it's determined at the module level for consistency
-    _standalone_fs_virtual_root = os.getenv(f"LLMBDO_{SERVER_NAME.upper()}_VIRTUAL_ROOT", 
-                                          os.getenv("LLMBDO_FS_DATA_ROOT", 
-                                                    os.path.expanduser(f"~/{SERVER_NAME}_standalone_root")))
-    
-    # Ensure the standalone virtual root exists for testing
-    try:
-        Path(_standalone_fs_virtual_root).mkdir(parents=True, exist_ok=True)
-        print(f"FS Server standalone test: Using virtual root at {_standalone_fs_virtual_root}")
-    except Exception as e:
-        print(f"FS Server standalone test: Could not create virtual root at {_standalone_fs_virtual_root}: {e}")
-        # Decide if to exit or continue with a potentially non-functional virtual root.
-        # For critical FS_VIRTUAL_ROOT, might be better to exit if it's based on user home and fails.
+    # Initialisation du logging spécifique pour le script si pas déjà fait par MCPServer au niveau module
+    if not fs_server.logger.hasHandlers(): # Vérifier si le logger de l'instance a déjà des handlers
+        _fallback_lvl = logging.INFO
+        _log_lvl_main = logging.getLevelName(os.getenv(f"LLMBDO_{SERVER_NAME.upper()}_LOG_LEVEL", "INFO").upper())
+        if not isinstance(_log_lvl_main, int): _log_lvl_main = _fallback_lvl
+        logging.basicConfig(level=_log_lvl_main, format=f"%(asctime)s - FS_MAIN - %(levelname)s - %(message)s")
+        # Ou configurez fs_server.logger ici plus spécifiquement si MCPServer ne le fait pas assez tôt.
 
-    # Update FS_VIRTUAL_ROOT_STR for this standalone run if different from module-level
-    # This is tricky because FS_VIRTUAL_ROOT_STR is used globally in this file.
-    # It's better if _validate_fs_path always gets its virtual_root_str from FS_VIRTUAL_ROOT_ENV_STR
-    # or the common default, and FS_VIRTUAL_ROOT_ENV_STR is set correctly by the environment.
-    # The logic defining FS_VIRTUAL_ROOT_STR at module level should be robust.
-
-    if not FS_VIRTUAL_ROOT_STR:
-        print(f"CRITICAL for FS Server: FS_VIRTUAL_ROOT_STR is not defined. Set LLMBDO_FS_VIRTUAL_ROOT or LLMBDO_FS_DATA_ROOT or LLMBDO_DEFAULT_VIRTUAL_ROOT.", file=sys.stderr)
-        exit(1)
+    if not FS_VIRTUAL_ROOT_STR: # Vérification critique
+        fs_server.logger.critical(f"FS Server CRITICAL: FS_VIRTUAL_ROOT_STR not defined!")
+        sys.exit(1) # Utiliser sys.exit
     
-    # Ensure the determined FS_VIRTUAL_ROOT_STR actually points to an existing directory
-    # This is crucial for the server to operate.
-    _final_virtual_root_to_check = Path(FS_VIRTUAL_ROOT_STR).resolve()
-    if not _final_virtual_root_to_check.is_dir():
-        print(f"CRITICAL for FS Server: The virtual root '{_final_virtual_root_to_check}' is not an existing directory.", file=sys.stderr)
-        print(f"Please create it or set LLMBDO_FS_VIRTUAL_ROOT / LLMBDO_FS_DATA_ROOT to a valid directory path.", file=sys.stderr)
-        exit(1)
+    _final_root_to_check = Path(FS_VIRTUAL_ROOT_STR).resolve()
+    if not _final_root_to_check.is_dir():
+        fs_server.logger.critical(f"FS Server CRITICAL: Virtual root '{_final_root_to_check}' is not an existing directory.")
+        sys.exit(1)
 
     fs_server.logger.info(f"FS Server '{SERVER_NAME}' starting with effective virtual root: {FS_VIRTUAL_ROOT_STR}")
+    try:
+        asyncio.run(fs_server.start())
+    except KeyboardInterrupt:
+        fs_server.logger.info(f"FS Server '{SERVER_NAME}' (main) stopped by KeyboardInterrupt.")
+    # ... (le reste de votre bloc __main__ pour le cleanup) ...
 
     try:
         asyncio.run(fs_server.start())

@@ -26,58 +26,55 @@ def _is_path_within_virtual_root(path_to_check: Path, virtual_root: Path) -> boo
 
 # llmbasedos_pkg/common_utils.py
 
+# llmbasedos_pkg/common_utils.py
+# ... (logger, DEFAULT_VIRTUAL_ROOT_STR, _is_path_within_virtual_root) ...
+
 def validate_mcp_path_param(
-    path_param_from_wrapper: Any, # Ex: "mon_doc.txt" ou "sous_dossier/doc.txt" (après lstrip)
-    virtual_root_str: Optional[str] = None, # Ex: "/mnt/user_data" ou "/home/llmuser"
+    path_param_relative_to_root: str, # Ex: "docs/file.txt" ou "" pour la racine virtuelle elle-même
+    virtual_root_str: str,            # Ex: "/mnt/user_data" (doit être fourni et exister)
     check_exists: bool = False,
     must_be_dir: Optional[bool] = None,
     must_be_file: Optional[bool] = None
-    # relative_to_cwd_str n'est plus utilisé car les serveurs MCP n'ont pas de "CWD" pour les requêtes externes.
-    # allow_outside_virtual_root a été enlevé car le serveur FS doit toujours confiner.
 ) -> Tuple[Optional[Path], Optional[str]]:
     
-    if not isinstance(path_param_from_wrapper, str):
-        return None, "Path parameter must be a string."
+    logger.debug(f"validate_mcp_path_param: Validating '{path_param_relative_to_root}' against virtual_root '{virtual_root_str}'")
     
-    # Utiliser le virtual_root fourni, ou le défaut global.
-    # Ce virtual_root EST la base absolue sur le disque du serveur.
-    effective_virtual_root = Path(virtual_root_str if virtual_root_str else DEFAULT_VIRTUAL_ROOT_STR).resolve()
-    
-    # path_param_from_wrapper est déjà "nettoyé" de son '/' initial par _validate_fs_path.
-    # Il représente un chemin relatif au virtual_root.
-    # Exemple: path_param_from_wrapper = "docs/notes.txt", effective_virtual_root = Path("/mnt/user_data")
-    # p deviendra Path("/mnt/user_data/docs/notes.txt")
-
     try:
-        # Construire le chemin absolu sur le disque en combinant la racine virtuelle et le chemin fourni.
-        # Path.joinpath() ou l'opérateur / gère correctement les cas où path_param_from_wrapper pourrait être vide.
-        # Si path_param_from_wrapper est ".", il pointera vers effective_virtual_root.
-        p = (effective_virtual_root / path_param_from_wrapper).resolve()
+        # La racine virtuelle doit exister et être un répertoire
+        effective_virtual_root = Path(virtual_root_str).resolve()
+        if not effective_virtual_root.is_dir():
+            # Cet échec devrait être attrapé au démarrage du serveur fs, mais vérification ici aussi.
+            msg = f"Virtual root '{effective_virtual_root}' is not an existing directory."
+            logger.error(msg)
+            return None, msg
 
-        # Sécurité : Vérifier que le chemin résolu `p` est bien DANS ou ÉGAL à `effective_virtual_root`.
-        # C'est la vérification cruciale contre le directory traversal (ex: si path_param_from_wrapper était "../../../etc/passwd").
-        if not _is_path_within_virtual_root(p, effective_virtual_root):
-            logger.warning(f"Path access violation: '{p}' (from input '{path_param_from_wrapper}') is outside virtual root '{effective_virtual_root}'.")
-            # Retourner un message d'erreur qui n'expose pas la structure interne des chemins résolus.
-            return None, f"Path '{path_param_from_wrapper}' is outside allowed access boundaries."
+        # path_param_relative_to_root est déjà nettoyé de son '/' initial.
+        # Il représente un chemin relatif à la racine virtuelle.
+        # Ex: path_param_relative_to_root = "docs/notes.txt", effective_virtual_root = Path("/mnt/user_data")
+        # disk_path deviendra Path("/mnt/user_data/docs/notes.txt")
+        # Si path_param_relative_to_root est "", disk_path deviendra Path("/mnt/user_data")
+        disk_path = (effective_virtual_root / path_param_relative_to_root).resolve()
 
-        if check_exists and not p.exists():
-            return None, f"Path '{path_param_from_wrapper}' (resolved to '{p.relative_to(effective_virtual_root)}' within root) does not exist."
+        # Sécurité : Vérifier que le chemin résolu `disk_path` est bien DANS ou ÉGAL à `effective_virtual_root`.
+        if not _is_path_within_virtual_root(disk_path, effective_virtual_root):
+            unconfined_msg = f"Access violation: Path '{path_param_relative_to_root}' (resolves to '{disk_path}') is outside virtual root '{effective_virtual_root}'."
+            logger.warning(unconfined_msg)
+            return None, f"Path '{path_param_relative_to_root}' is outside allowed access boundaries."
+
+        if check_exists and not disk_path.exists():
+            return None, f"Path '{path_param_relative_to_root}' (resolved to '{disk_path.relative_to(effective_virtual_root)}' within root) does not exist."
         
-        if p.exists():
-            if must_be_dir is True and not p.is_dir():
-                return None, f"Path '{path_param_from_wrapper}' (resolved to '{p.relative_to(effective_virtual_root)}') is not a directory."
-            if must_be_file is True and not p.is_file():
-                return None, f"Path '{path_param_from_wrapper}' (resolved to '{p.relative_to(effective_virtual_root)}') is not a file."
+        if disk_path.exists(): # Vérifier le type seulement si le chemin existe
+            if must_be_dir is True and not disk_path.is_dir():
+                return None, f"Path '{path_param_relative_to_root}' (resolved to '{disk_path.relative_to(effective_virtual_root)}') is not a directory."
+            if must_be_file is True and not disk_path.is_file():
+                return None, f"Path '{path_param_relative_to_root}' (resolved to '{disk_path.relative_to(effective_virtual_root)}') is not a file."
             
-        return p, None # Retourne le chemin absolu résolu sur le disque du serveur
+        return disk_path, None # Retourne le chemin disque absolu et validé
     
     except ValueError as ve: 
-        logger.warning(f"Path '{path_param_from_wrapper}' is malformed: {ve}")
-        return None, f"Path '{path_param_from_wrapper}' is malformed."
-    except OSError as ose:
-        logger.error(f"OS error validating path '{path_param_from_wrapper}' resolved against '{effective_virtual_root}': {ose}", exc_info=False)
-        return None, f"Cannot access path '{path_param_from_wrapper}': {ose.strerror}"
+        logger.warning(f"Path '{path_param_relative_to_root}' is malformed: {ve}")
+        return None, f"Path '{path_param_relative_to_root}' is malformed."
     except Exception as e: 
-        logger.error(f"Unexpected error validating path '{path_param_from_wrapper}': {e}", exc_info=True)
-        return None, f"Invalid path '{path_param_from_wrapper}': {type(e).__name__}"
+        logger.error(f"Unexpected error validating path '{path_param_relative_to_root}' against '{virtual_root_str}': {e}", exc_info=True)
+        return None, f"Error processing path '{path_param_relative_to_root}': {type(e).__name__}"

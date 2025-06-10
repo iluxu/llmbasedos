@@ -80,26 +80,30 @@ async def cmd_connect(args_list: List[str], app: 'ShellApp'):
     else:
         app.console.print("[[error]Failed to connect[/]]. Check gateway status and URL configured in shell.")
 
+# Dans builtin_cmds.py
 async def cmd_cd(args_list: List[str], app: 'ShellApp'):
-    """Changes the current working directory. Usage: cd <path>"""
     if not args_list:
-        target_path_str = os.path.expanduser("~")
+        target_virt_path_str = "/" # Aller à la racine virtuelle
     else:
-        target_path_str = args_list[0]
-    
-    current_cwd = app.get_cwd()
-    expanded_path_str = os.path.expanduser(target_path_str)
-    
-    new_path_obj: Path
-    if os.path.isabs(expanded_path_str):
-        new_path_obj = Path(expanded_path_str).resolve()
-    else:
-        new_path_obj = (current_cwd / expanded_path_str).resolve()
+        target_virt_path_str = args_list[0]
 
-    response = await app.send_mcp_request(None, "mcp.fs.list", [str(new_path_obj)]) 
+    # Construire le nouveau chemin virtuel
+    # Path.resolve() aide à gérer les ".." etc.
+    if target_virt_path_str.startswith("/"):
+        new_virt_path = Path(target_virt_path_str).resolve()
+    else:
+        new_virt_path = (app.get_cwd() / target_virt_path_str).resolve()
+    
+    # Normaliser pour s'assurer qu'il commence par "/" (resolve peut enlever le / initial si vide)
+    if not str(new_virt_path).startswith("/"):
+         new_virt_path = Path("/") / new_virt_path
+
+    # Envoyer ce chemin virtuel normalisé pour validation
+    response = await app.send_mcp_request(None, "mcp.fs.list", [str(new_virt_path)])
     
     if response and "result" in response:
-        app.set_cwd(new_path_obj)
+        app.set_cwd(new_virt_path) # Mettre à jour le CWD virtuel du shell
+    # ... gestion des erreurs ...
     elif response and "error" in response:
         # Utiliser app._format_and_print_mcp_response pour afficher l'erreur MCP de manière standard
         await app._format_and_print_mcp_response("mcp.fs.list", response, request_path_for_ls=str(new_path_obj))

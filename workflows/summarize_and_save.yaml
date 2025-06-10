@@ -1,0 +1,44 @@
+# ./workflows/summarize_and_save.yaml
+id: summarize_and_show_v1 # Nouveau nom pour refléter le changement
+name: "Summarize File and Show"
+description: "Reads a text file, asks an LLM to summarize it, and outputs the summary."
+input_schema:
+  type: object
+  properties:
+    input_file_path:
+      type: string
+      description: "Virtual absolute path to the input text file (e.g., /notes_projet.txt)."
+    llm_model_alias:
+      type: string
+      description: "LLM model alias to use for summarization. Defaults to gateway's default."
+      optional: true 
+    llm_prompt_template:
+      type: string
+      description: "Prompt template. Use {file_content} as placeholder."
+      default: "Voici un texte :\n\n{file_content}\n\nFais-en un résumé concis en français d'environ 2-3 phrases."
+      optional: true
+  required:
+    - input_file_path
+
+type: mcp_sequential_agent 
+
+steps:
+  - name: "Read Input File"
+    action: "mcp_call"
+    method: "mcp.fs.read"
+    params_template:
+      - "{{ inputs.input_file_path }}"
+      - "text"
+    outputs_to_context:
+      file_content_result: "{{ result.content }}"
+
+  - name: "Summarize Content with LLM"
+    action: "mcp_call"
+    method: "mcp.llm.chat"
+    params_template:
+      - - role: "user"
+          content: "{{ inputs.llm_prompt_template | replace('{file_content}', context.file_content_result) }}"
+      - model: "{{ inputs.llm_model_alias | default(None) }}" 
+        # stream: false # Assurez-vous que le gateway retourne une réponse complète et non streamée pour l'agent
+    outputs_to_context: # La clé ici sera la sortie principale du workflow
+      summary_text: "{{ result.choices[0].message.content }}" 

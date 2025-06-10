@@ -1,9 +1,15 @@
 # llmbasedos/gateway/requirements.txt
 fastapi>=0.100.0,<0.111.0
-uvicorn[standard]>=0.20.0 # [standard] includes websockets, cython-based http-tools, etc.
-websockets>=10.0 # Explicitly for unix socket client in dispatch, uvicorn brings its own for server.
+uvicorn[standard]>=0.20.0
+# [standard] includes websockets, cython-based http-tools, etc.
+websockets>=10.0
+# Explicitly for unix socket client in dispatch, uvicorn brings its own for server.
 pydantic>=2.0.0
-python-json-logger>=2.0.0 # For structured logging
-pyyaml>=6.0 # For config, licence tiers, etc.
-watchdog>=3.0.0 # For monitoring .cap.json files
-httpx>=0.25.0 # For async HTTP requests to OpenAI/llama.cpp
+python-json-logger>=2.0.0
+# For structured logging
+pyyaml>=6.0
+# For config, licence tiers, etc.
+watchdog>=3.0.0
+# For monitoring .cap.json files
+httpx>=0.25.0
+# For async HTTP requests to OpenAI/llama.cpp

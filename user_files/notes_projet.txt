@@ -1,0 +1,4 @@
+L'objectif principal est de développer un système d'exploitation basé sur les LLM pour un contrôle local et sécurisé des données et des capacités.
+ Les fonctionnalités clés incluent l'accès aux fichiers, la recherche sémantique, l'exécution d'agents et la synchronisation.
+ Le modèle de monétisation sera basé sur des licences PRO et des appliances matérielles.
+ Prochaine étape : finaliser le MVP pour la démo Kima Ventures et préparer le lancement open-source.

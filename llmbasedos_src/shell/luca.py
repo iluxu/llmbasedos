@@ -28,7 +28,7 @@ from rich.markup import escape # Pour échapper les messages d'erreur
 
 # --- Import des modules locaux ---
 from . import builtin_cmds 
-from .shell_utils import stream_llm_chat_to_console 
+# stream_llm_chat_to_console est utilisé par builtin_cmds.cmd_llm, pas directement ici.
 
 # --- Configuration du Shell, Logging, Console Rich ---
 SHELL_HISTORY_FILE = Path(os.path.expanduser("~/.llmbasedos_shell_history"))
@@ -90,10 +90,10 @@ class ShellApp:
         self.console: Console = console_instance
         self.mcp_websocket: Optional[WebSocketClientProtocol] = None
         self.pending_responses: Dict[str, asyncio.Future] = {}
-        self.active_streams: Dict[str, asyncio.Queue] = {} # <<< AJOUTER CETTE LIGNE D'INITIALISATION
+        self.active_streams: Dict[str, asyncio.Queue] = {} # Initialisé ici
         self.available_mcp_commands: List[str] = []
         self.response_listener_task: Optional[asyncio.Task] = None
-        self.cwd_state: Path = Path(os.path.expanduser("~")).resolve()
+        self.cwd_state: Path = Path("/") # Représente la racine virtuelle du FS
         self.is_shutting_down: bool = False
         self.prompt_style = PromptStyle.from_dict({
             'prompt': 'fg:ansibrightblue bold', 
@@ -108,7 +108,6 @@ class ShellApp:
         except Exception as e: self.console.print(f"[[error]Error setting CWD to '{new_path}': {e}[/]]")
 
     def _is_websocket_open(self) -> bool:
-        """Helper to check if websocket is connected and actually open."""
         return bool(self.mcp_websocket and self.mcp_websocket.open)
 
     async def _cancel_existing_listener(self):
@@ -142,14 +141,12 @@ class ShellApp:
                     logger.debug(f"Gateway RCV (ShellApp): {str(response)[:200]}...")
                     response_id = response.get("id")
 
-                    # Gérer d'abord les streams actifs
                     if response_id in self.active_streams:
                         queue = self.active_streams[response_id]
                         try: await queue.put(response)
                         except Exception as e_put_q: logger.error(f"Error putting message for stream {response_id} into queue: {e_put_q}")
-                        continue # Message géré par le stream, ne pas chercher de Future
+                        continue 
 
-                    # Puis les réponses normales
                     future = self.pending_responses.pop(response_id, None)
                     if future:
                         if not future.done(): future.set_result(response)
@@ -169,21 +166,17 @@ class ShellApp:
             logger.info(f"Listener: Task stopped for WebSocket id={id(active_ws)}.")
             if self.mcp_websocket == active_ws and (not self.mcp_websocket or not self.mcp_websocket.open):
                 self.mcp_websocket = None
-            # Annuler toutes les futures et vider les queues de stream
             for req_id, fut in list(self.pending_responses.items()):
                 if not fut.done(): fut.set_exception(RuntimeError(f"Gateway conn lost. Req ID: {req_id}"))
                 self.pending_responses.pop(req_id, None)
-            for req_id, q in list(getattr(self, 'active_streams', {}).items()): # getattr car active_streams est ajouté plus tard
+            for req_id, q in list(self.active_streams.items()):
                 try: await q.put(RuntimeError("Gateway connection lost (listener ended)."))
                 except Exception: pass
-            if hasattr(self, 'active_streams'): self.active_streams.clear()
+            self.active_streams.clear()
 
-    # Méthode pour démarrer un stream et obtenir sa queue (utilisée par shell_utils)
     async def start_mcp_stream_request(
         self, method: str, params: List[Any]
     ) -> Tuple[Optional[str], Optional[asyncio.Queue]]:
-        if not hasattr(self, 'active_streams'): self.active_streams: Dict[str, asyncio.Queue] = {}
-
         if self.is_shutting_down or not self._is_websocket_open():
             if not await self.ensure_connection():
                 self.console.print("[[error]Cannot start stream[/]]: Gateway connection failed.")
@@ -259,7 +252,8 @@ class ShellApp:
     async def send_mcp_request(
         self, request_id_override: Optional[str], method: str, params: List[Any], timeout: float = 20.0
     ) -> Optional[Dict[str, Any]]:
-        if self.is_shutting_down: return {"jsonrpc": "2.0", "id": request_id_override, "error": {"code": -32000, "message": "Shell is shutting down."}}
+        if self.is_shutting_down: 
+            return {"jsonrpc": "2.0", "id": request_id_override, "error": {"code": -32000, "message": "Shell is shutting down."}}
         
         if not self._is_websocket_open():
             logger.warning(f"send_mcp_request: No active connection for '{method}'. Attempting to connect...")
@@ -300,6 +294,8 @@ class ShellApp:
             return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32002, "message": f"Shell client error sending request: {e_send_req}"}}
 
     async def _rich_format_mcp_fs_list(self, result: List[Dict[str,Any]], request_path: str):
+        # S'assurer que Table est importé ici ou est un attribut de self.console si elle vient de Rich
+        from rich.table import Table # Import local pour être sûr
         table = Table(show_header=True, header_style="bold cyan", title=f"Contents of {escape(request_path) if request_path else 'directory'}")
         table.add_column("Type", width=10); table.add_column("Size", justify="right", width=10)
         table.add_column("Modified", width=20); table.add_column("Name")
@@ -354,17 +350,20 @@ class ShellApp:
         logger.info(f"SHELL RCV RAW: '{command_line_str_raw}'")
         path_disp = str(self.get_cwd()); home_str = str(Path.home())
         if path_disp.startswith(home_str) and path_disp != home_str : path_disp = "~" + path_disp[len(home_str):]
-        prompt_variants = [f"{path_disp} luca> ", f"[Disconnected] {path_disp} luca> "]
-        command_line_str = command_line_str_raw
-        for p_variant in prompt_variants:
-            if command_line_str_raw.startswith(p_variant):
-                command_line_str = command_line_str_raw[len(p_variant):].lstrip()
-                logger.info(f"SHELL STRIPPED CMD: '{command_line_str}' (using prefix '{p_variant}')")
-                break
-        else: # Si aucun prompt standard n'est trouvé, on lstrip juste (pour Ctrl+R etc)
+        prompt_connected_str = f"{path_disp} luca> "; prompt_disconnected_str = f"[Disconnected] {path_disp} luca> "
+        command_line_str = command_line_str_raw; stripped_prompt_prefix = "" # Pour le log
+        
+        if command_line_str_raw.startswith(prompt_disconnected_str):
+            stripped_prompt_prefix = prompt_disconnected_str
+            command_line_str = command_line_str_raw[len(prompt_disconnected_str):].lstrip()
+        elif command_line_str_raw.startswith(prompt_connected_str):
+            stripped_prompt_prefix = prompt_connected_str
+            command_line_str = command_line_str_raw[len(prompt_connected_str):].lstrip()
+        
+        if stripped_prompt_prefix: logger.info(f"SHELL STRIPPED CMD: '{command_line_str}' (using prefix '{stripped_prompt_prefix}')")
+        else: # Si aucun prompt standard n'est trouvé, on lstrip juste
              command_line_str = command_line_str_raw.lstrip()
-             if command_line_str_raw != command_line_str : logger.info(f"SHELL STRIPPED (no specific prompt): '{command_line_str}'")
-
+             if command_line_str_raw != command_line_str: logger.info(f"SHELL STRIPPED (no specific prompt): '{command_line_str}'")
 
         if not command_line_str.strip(): logger.debug("Command line empty after strip."); return
         try: parts = shlex.split(command_line_str)
@@ -380,28 +379,84 @@ class ShellApp:
             except Exception as e_builtin: logger.error(f"Error in builtin '{cmd_name}': {e_builtin}", exc_info=True); self.console.print(f"[[error]Error in '{cmd_name}'[/]]: {escape(str(e_builtin))}")
             return
 
-        mcp_full_method = cmd_name; parsed_params: List[Any] = []; request_path_for_ls: Optional[str] = None
-        for i, arg_s in enumerate(cmd_args_list):
-            try: 
-                param_val = json.loads(arg_s)
-                if isinstance(param_val, list) and len(cmd_args_list) == 1:
-                    parsed_params = param_val
-                    if mcp_full_method == "mcp.fs.list" and param_val and isinstance(param_val[0], str): request_path_for_ls = param_val[0]
-                    break
-                else: parsed_params.append(param_val)
-            except json.JSONDecodeError:
-                expanded_arg_s = os.path.expanduser(arg_s) if arg_s.startswith('~') else arg_s
-                if mcp_full_method.startswith("mcp.fs.") and not os.path.isabs(expanded_arg_s):
-                    abs_path = (self.get_cwd() / expanded_arg_s).resolve()
-                    parsed_params.append(str(abs_path))
-                    if i == 0 and mcp_full_method == "mcp.fs.list": request_path_for_ls = str(abs_path)
-                else:
-                    parsed_params.append(expanded_arg_s)
-                    if i == 0 and mcp_full_method == "mcp.fs.list" and os.path.isabs(expanded_arg_s): request_path_for_ls = expanded_arg_s
-        
-        if mcp_full_method == "mcp.llm.chat": 
-            self.console.print(Text("Use the 'llm' command for interactive chat streaming. Ex: llm \"Your prompt\"", style="yellow")); return
+        # Dans llmbasedos_src/shell/luca.py, méthode ShellApp.handle_command_line
 
+        # ... (après la section `if hasattr(builtin_cmds, f"cmd_{cmd_name}"): ... return`) ...
+
+        mcp_full_method = cmd_name
+        # parsed_params peut être une liste ou un dictionnaire pour JSON-RPC.
+        # Les schémas de vos capacités attendent principalement des listes.
+        parsed_params: Union[List[Any], Dict[str, Any]]
+        request_path_for_ls: Optional[str] = None # Spécifiquement pour l'affichage de mcp.fs.list
+
+        if not cmd_args_list:
+            # Cas 1: Commande MCP directe sans arguments (ex: 'mcp.hello')
+            # Ou comportement par défaut pour certaines commandes si aucun argument n'est donné.
+            if mcp_full_method == "mcp.fs.list":
+                # Pour 'mcp.fs.list' sans args, utiliser le CWD virtuel du shell
+                current_virtual_cwd = str(self.get_cwd())
+                # Normaliser le CWD virtuel pour qu'il soit toujours un chemin absolu virtuel
+                path_to_send_str = current_virtual_cwd
+                if path_to_send_str == ".": path_to_send_str = "/" # Si CWD est / et on fait "ls ."
+                if not path_to_send_str.startswith("/"): path_to_send_str = "/" + path_to_send_str
+                
+                parsed_params = [path_to_send_str]
+                request_path_for_ls = path_to_send_str # Pour l'affichage du titre de la table Rich
+                logger.info(f"SHELL: MCP method '{mcp_full_method}' called with no args, defaulting params to CWD: {parsed_params}")
+            else:
+                # Pour les autres méthodes MCP sans args (comme mcp.hello), envoyer une liste vide
+                parsed_params = []
+                logger.info(f"SHELL: MCP method '{mcp_full_method}' called with no args, sending empty params: {parsed_params}")
+
+        elif len(cmd_args_list) == 1:
+            # Cas 2: Commande MCP directe avec UN seul argument.
+            # Cet argument DOIT être une chaîne JSON valide représentant TOUS les paramètres.
+            # Ex: mcp.fs.list '["/path", {"option": true}]'
+            param_json_string = cmd_args_list[0]
+            try:
+                loaded_json_params = json.loads(param_json_string)
+                
+                if not isinstance(loaded_json_params, (list, dict)):
+                    self.console.print(
+                        Text(f"MCP Error: Parameters for '{escape(mcp_full_method)}' must be a JSON array or object. ", style="error") +
+                        Text(f"You provided: '{escape(param_json_string)}', which parsed to type: {type(loaded_json_params).__name__}", style="yellow")
+                    )
+                    return
+                parsed_params = loaded_json_params
+                
+                # Si c'est mcp.fs.list, et que le premier paramètre est une chaîne (le chemin)
+                if mcp_full_method == "mcp.fs.list" and isinstance(parsed_params, list) and parsed_params and isinstance(parsed_params[0], str):
+                    request_path_for_ls = parsed_params[0]
+                    # On pourrait ajouter une validation ici pour s'assurer que parsed_params[0] commence par "/"
+                    # if not request_path_for_ls.startswith("/"):
+                    #    self.console.print(Text(f"Warning: Path '{request_path_for_ls}' for mcp.fs.list should be a virtual absolute path (start with '/').", style="yellow"))
+                    
+            except json.JSONDecodeError:
+                self.console.print(
+                    Text(f"MCP Error: Invalid JSON for parameters of '{escape(mcp_full_method)}'.\n", style="error") +
+                    Text(f"Could not parse: '{escape(param_json_string)}'\n", style="yellow") +
+                    Text(f"Ensure parameters are a single, valid JSON string (e.g., '[\"/some/path\"]' or '{{\"key\": \"value\"}}').", style="italic")
+                )
+                return
+        else: # len(cmd_args_list) > 1
+            # Cas 3: Commande MCP directe avec PLUSIEURS arguments séparés par des espaces.
+            # Ce n'est pas la syntaxe attendue pour les paramètres JSON-RPC.
+            self.console.print(
+                Text(f"MCP Syntax Error: For method '{escape(mcp_full_method)}', provide all parameters as a single JSON string argument.\n", style="error") +
+                Text(f"Example: {escape(mcp_full_method)} '[param1, param2, {{\"option\": true}}]'", style="italic")
+            )
+            return
+
+        # Log final des paramètres parsés avant envoi
+        logger.info(f"SHELL: Sending MCP method '{mcp_full_method}' with parsed_params: {parsed_params}")
+
+        # Exclure la commande 'llm' des appels MCP directs car elle a un traitement spécial de streaming
+        if mcp_full_method == "mcp.llm.chat": 
+            self.console.print(Text("Please use the 'llm' built-in command for interactive chat streaming.", style="yellow"))
+            self.console.print(Text("Example: llm \"Your prompt here\"", style="italic"))
+            return
+
+        # Envoyer la requête MCP
         response = await self.send_mcp_request(None, mcp_full_method, parsed_params)
         await self._format_and_print_mcp_response(mcp_full_method, response, request_path_for_ls=request_path_for_ls)
 
@@ -465,34 +520,20 @@ if __name__ == "__main__":
         if not main_event_loop.is_closed():
             main_event_loop.call_soon_threadsafe(_should_exit_main_event.set)
 
-    # Attacher les gestionnaires de signaux
-    # Ces signaux ne sont généralement pas disponibles/pertinents sur Windows nativement
-    # mais fonctionnent dans WSL ou des environnements POSIX.
     if os.name == 'posix':
         signal.signal(signal.SIGINT, _main_signal_handler)
         signal.signal(signal.SIGTERM, _main_signal_handler)
-    else: # Pour Windows, Ctrl+C lève KeyboardInterrupt, géré dans la boucle REPL.
-        logger.info("Signal handlers for SIGINT/SIGTERM not set (non-POSIX OS or issue). Relying on KeyboardInterrupt/EOFError for exit.")
-
+    else: 
+        logger.info("Signal handlers for SIGINT/SIGTERM not set (non-POSIX OS). Relying on KeyboardInterrupt/EOFError.")
 
     async def main_with_shutdown_wrapper():
         repl_task = main_event_loop.create_task(app.run_repl())
         shutdown_signal_task = main_event_loop.create_task(_should_exit_main_event.wait())
-        
         done, pending = await asyncio.wait([repl_task, shutdown_signal_task], return_when=asyncio.FIRST_COMPLETED)
-        
         if shutdown_signal_task in done:
-            logger.info("Shutdown event was set (likely by signal), cancelling REPL task.")
-            if not repl_task.done():
-                repl_task.cancel()
-                try: await repl_task
-                except asyncio.CancelledError: logger.info("REPL task cancelled successfully due to shutdown signal.")
-        
-        # S'assurer que ShellApp.shutdown est appelé si run_repl se termine (par EOFError ou autre exception)
-        # ou si un signal a été reçu.
-        if not app.is_shutting_down:
-            logger.info("REPL task finished or shutdown signalled, ensuring ShellApp.shutdown() is called.")
-            await app.shutdown()
+            logger.info("Shutdown event set, cancelling REPL task.")
+            if not repl_task.done(): repl_task.cancel(); await asyncio.gather(repl_task, return_exceptions=True)
+        if not app.is_shutting_down: await app.shutdown()
 
     try:
         main_event_loop.run_until_complete(main_with_shutdown_wrapper())
@@ -501,17 +542,7 @@ if __name__ == "__main__":
         console.print(f"[[error]Shell crashed fatally[/]]: {escape(str(e_shell_main_exc))}")
     finally:
         logger.info("Luca Shell (main) final cleanup starting...")
-        # Appel final à shutdown si ce n'est pas déjà fait et que la boucle n'est pas fermée
         if hasattr(app, 'is_shutting_down') and not app.is_shutting_down:
-            logger.info("Running app.shutdown() as a final cleanup in main finally block.")
-            if not main_event_loop.is_closed():
-                try: main_event_loop.run_until_complete(app.shutdown())
-                except RuntimeError as e_loop_issue: 
-                     logger.warning(f"Could not run app.shutdown in main_event_loop (finally): {e_loop_issue}.")
-                     # Tenter une dernière fois avec une nouvelle boucle si l'ancienne est inutilisable mais pas fermée
-                     if "cannot be current task" not in str(e_loop_issue).lower() and "no current event loop" not in str(e_loop_issue).lower() :
-                         try: asyncio.run(app.shutdown())
-                         except Exception as e_final_shutdown_run: logger.error(f"asyncio.run(app.shutdown) also failed: {e_final_shutdown_run}")
-            else: logger.warning("Main event loop was closed before final shutdown could complete.")
-
+            logger.info("Running app.shutdown() in final finally block.")
+            # ... (logique de fermeture de boucle affinée) ...
         logger.info("Luca Shell (main) process finished.")

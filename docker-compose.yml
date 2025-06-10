@@ -1,15 +1,16 @@
 # llmbasedos/docker-compose.yml
-version: '3.8'
+# La ligne 'version' est optionnelle pour les versions récentes de Docker Compose
+# version: '3.8' 
 
 services:
   llmbasedos:
     # Pour le développement rapide du code Python, utilisez l'image pré-construite
     # et montez votre code source local par-dessus celui de l'image.
-    image: llmbasedos/appliance:latest # Assurez-vous que ce tag existe localement
+    # Si vous modifiez le Dockerfile ou les requirements.txt, vous devez 'docker compose build'.
+    image: llmbasedos/appliance:latest # Assurez-vous que ce tag existe localement après un build
     build: 
       context: .
-      dockerfile: Dockerfile # Décommentez et utilisez `docker-compose build` 
-                             # SEULEMENT si le Dockerfile ou les requirements.txt changent.
+      dockerfile: Dockerfile
     
     container_name: llmbasedos_instance
     ports:
@@ -18,58 +19,63 @@ services:
       # 1. MONTAGE DU CODE SOURCE LOCAL (pour le développement)
       #    Le code dans ./llmbasedos_src/ sur votre hôte masquera celui
       #    copié dans l'image à /opt/app/llmbasedos/
-      - ./llmbasedos_src:/opt/app/llmbasedos 
+      - ./llmbasedos_src:/opt/app/llmbasedos:rw # 'rw' est par défaut, mais explicite ici
 
-      # 2. Fichiers de configuration montés depuis l'hôte
+      # 2. Fichiers de configuration montés depuis l'hôte (lecture seule)
       - ./llmbasedos_src/gateway/licence_tiers.yaml:/etc/llmbasedos/licence_tiers.yaml:ro
       - ./lic.key:/etc/llmbasedos/lic.key:ro 
       - ./mail_accounts.yaml:/etc/llmbasedos/mail_accounts.yaml:ro 
       - ./workflows:/etc/llmbasedos/workflows:ro 
-      - ./supervisord.conf:/etc/supervisor/conf.d/llmbasedos_supervisor.conf:ro # Utilise le nom exact du fichier config copié dans le Dockerfile
+      - ./supervisord.conf:/etc/supervisor/conf.d/llmbasedos_supervisor.conf:ro
 
       # 3. Données persistantes (volumes nommés Docker)
-      - llmbasedos_faiss_index:/var/lib/llmbasedos/faiss_index
-      - llmbasedos_app_logs:/var/log/llmbasedos
-      - llmbasedos_supervisor_logs:/var/log/supervisor
+      - llmbasedos_faiss_index:/var/lib/llmbasedos/faiss_index:rw
+      - llmbasedos_app_logs:/var/log/llmbasedos:rw
+      - llmbasedos_supervisor_logs:/var/log/supervisor:rw
+      # NOUVEAU : Volume pour le cache Hugging Face
+      - llmbasedos_hf_cache:/opt/app/llmbasedos_cache/huggingface:rw
 
       # 4. Données utilisateur pour mcp.fs
-      - ./user_files:/mnt/user_data 
+      - ./user_files:/mnt/user_data:rw 
     
     environment:
       - PYTHONUNBUFFERED=1
       - LLMBDO_LOG_LEVEL=${LLMBDO_LOG_LEVEL:-INFO}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:?err_openai_api_key_not_set_in_env_file} # Message d'erreur plus clair
+      - OPENAI_API_KEY=${OPENAI_API_KEY:?err_openai_api_key_not_set_in_env_file}
       # Exemple pour llama.cpp sur l'hôte (si Docker Desktop avec WSL2)
       # - LLAMA_CPP_URL=http://host.docker.internal:8080 
-      - LLMBDO_FS_DATA_ROOT=/mnt/user_data
-      # Les variables d'environnement définies dans le Dockerfile (comme LLMBDO_GATEWAY_WEB_PORT, APP_ROOT_DIR, etc.)
-      # seront utilisées sauf si surchargées ici ou dans un fichier .env.
-      # Il n'est généralement pas nécessaire de les redéfinir ici si les valeurs par défaut du Dockerfile sont bonnes.
+      - LLMBDO_FS_DATA_ROOT=/mnt/user_data # Utilisé par fs_server.py pour déterminer sa racine virtuelle
+      # Les variables d'environnement pour HF_HOME et TRANSFORMERS_CACHE sont définies dans le Dockerfile
+      # et pointent vers /opt/app/llmbasedos_cache/huggingface (et son sous-dossier hub).
+      # L'entrypoint.sh s'assurera que /opt/app/llmbasedos_cache est bien propriété de llmuser.
     
     restart: unless-stopped
     stop_grace_period: 1m
 
 volumes:
-  llmbasedos_faiss_index:
-  llmbasedos_app_logs:
-  llmbasedos_supervisor_logs:
+  llmbasedos_faiss_index: {} # Utiliser {} pour des options par défaut, ou laisser vide si pas d'options
+  llmbasedos_app_logs: {}
+  llmbasedos_supervisor_logs: {}
+  # NOUVELLE DÉFINITION DE VOLUME NOMMÉ :
+  llmbasedos_hf_cache: {}
 
-# --- Optionnel : Service llama.cpp ---
+# --- Optionnel : Service llama.cpp (décommenter et adapter si besoin) ---
 # services:
 #   llama_cpp_service:
 #     image: ghcr.io/ggerganov/llama.cpp:server 
-#     # Ou une image spécifique comme `your-repo/llama-cpp-cpu-server:latest`
-#     # Si vous avez besoin de la version CPU uniquement.
-#     # Vous pouvez la construire vous-même ou chercher des images publiques.
-#     # L'image officielle ggerganov/llama.cpp:server peut nécessiter des options de build
-#     # ou des variables d'environnement pour forcer le mode CPU si CUDA est détecté.
-#     # Pour forcer CPU avec l'image officielle, il n'y a pas d'option simple, 
-#     # il faut généralement la compiler sans support GPU ou s'assurer qu'aucun GPU n'est passé.
 #     ports:
-#       - "${LLAMA_CPP_EXPOSED_PORT:-8081}:8080"
+#       - "${LLAMA_CPP_EXPOSED_PORT:-8081}:8080" # Port exposé sur l'hôte vs port dans le conteneur
 #     volumes:
 #       - ./models:/models:ro # Montez vos modèles GGUF
-#     # Adaptez la commande pour votre modèle et pour s'assurer qu'il tourne en mode CPU si c'est ce que vous voulez.
-#     # L'option --n-gpu-layers 0 force l'utilisation du CPU.
 #     command: -m /models/your-model-name.Q5_K_M.gguf -c 2048 --host 0.0.0.0 --port 8080 --n-gpu-layers 0
+#     # --n-gpu-layers 0 force l'utilisation du CPU. Adaptez le nom du modèle.
+#     # Pour utiliser un GPU, il faudrait configurer `deploy: resources: reservations: devices`
+#     # et s'assurer que l'image supporte CUDA et que les pilotes hôtes sont compatibles.
 #     restart: unless-stopped
+#     # deploy: # Exemple pour l'utilisation GPU (nécessite Docker Engine >19.03)
+#     #   resources:
+#     #     reservations:
+#     #       devices:
+#     #         - driver: nvidia
+#     #           count: 1 # ou 'all'
+#     #           capabilities: [gpu]

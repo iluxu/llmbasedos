@@ -6,14 +6,39 @@
         {
             "method": "mcp.agent.listWorkflows",
             "description": "Lists available agent workflows.",
-            "params_schema": { "type": "array", "maxItems": 0 },
+            "params_schema": {
+                "type": "array",
+                "maxItems": 0
+            },
             "result_schema": {
-                "type": "array", "items": {
-                    "type": "object", "properties": {
-                        "workflow_id": {"type": "string"}, "name": {"type": "string"},
-                        "description": {"type": ["string", "null"]},
-                        "input_schema": {"type": ["object", "null"], "description": "JSON schema for inputs."}
-                    }, "required": ["workflow_id", "name"]
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "workflow_id": {
+                            "type": "string"
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "description": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        },
+                        "input_schema": {
+                            "type": [
+                                "object",
+                                "null"
+                            ],
+                            "description": "JSON schema for inputs."
+                        }
+                    },
+                    "required": [
+                        "workflow_id",
+                        "name"
+                    ]
                 }
             }
         },
@@ -21,44 +46,178 @@
             "method": "mcp.agent.runWorkflow",
             "description": "Executes a workflow with given inputs.",
             "params_schema": {
-                "type": "array", "minItems": 1, "maxItems": 2, "items": [
-                    {"type": "string", "description": "workflow_id"},
-                    {"type": "object", "optional": true, "description": "Input parameters."}
-                ]
+                "type": "array",
+                "prefixItems": [
+                    {
+                        "type": "string",
+                        "description": "workflow_id"
+                    },
+                    {
+                        "type": "object",
+                        "description": "Input parameters."
+                    }
+                ],
+                "minItems": 1,
+                "maxItems": 2,
+                "items": false
             },
             "result_schema": {
-                "type": "object", "properties": {
-                    "execution_id": {"type": "string"}, "workflow_id": {"type": "string"},
-                    "status": {"type": "string", "enum": ["pending", "started", "running", "completed", "failed"]},
-                    "output": {"type": ["object", "null"]}, "error_message": {"type": ["string", "null"]}
-                }, "required": ["execution_id", "workflow_id", "status"]
+                "type": "object",
+                "properties": {
+                    "execution_id": {
+                        "type": "string"
+                    },
+                    "workflow_id": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "pending",
+                            "started",
+                            "running",
+                            "completed",
+                            "failed"
+                        ]
+                    },
+                    "output": {
+                        "type": [
+                            "object",
+                            "null"
+                        ]
+                    },
+                    "error_message": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "required": [
+                    "execution_id",
+                    "workflow_id",
+                    "status"
+                ]
             }
         },
         {
             "method": "mcp.agent.getWorkflowStatus",
             "description": "Gets status of a workflow execution.",
-            "params_schema": { "type": "array", "minItems": 1, "maxItems": 1, "items": [{"type": "string", "description": "execution_id"}]},
+            "params_schema": {
+                "type": "array",
+                "prefixItems": [
+                    {
+                        "type": "string",
+                        "description": "execution_id"
+                    }
+                ],
+                "minItems": 1,
+                "maxItems": 1,
+                "items": false
+            },
             "result_schema": {
-                "type": "object", "properties": {
-                    "execution_id": {"type": "string"}, "workflow_id": {"type": "string"},
-                    "status": {"type": "string", "enum": ["pending", "running", "completed", "failed", "cancelled", "cancelling"]},
-                    "start_time": {"type": ["string", "null"], "format": "date-time"},
-                    "end_time": {"type": ["string", "null"], "format": "date-time"},
-                    "output": {"type": ["object", "null"]}, "error_message": {"type": ["string", "null"]},
-                    "log_preview": {"type": "array", "items": {"type": "string"}, "optional": true}
-                }, "required": ["execution_id", "workflow_id", "status"]
+                "type": "object",
+                "properties": {
+                    "execution_id": {
+                        "type": "string"
+                    },
+                    "workflow_id": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "pending",
+                            "running",
+                            "completed",
+                            "failed",
+                            "cancelled",
+                            "cancelling"
+                        ]
+                    },
+                    "start_time": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "end_time": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "output": {
+                        "type": [
+                            "object",
+                            "null"
+                        ]
+                    },
+                    "error_message": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "log_preview": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "required": [
+                    "execution_id",
+                    "workflow_id",
+                    "status"
+                ]
             }
         },
         {
             "method": "mcp.agent.stopWorkflow",
             "description": "Attempts to stop a running workflow execution.",
-             "params_schema": { "type": "array", "minItems": 1, "maxItems": 1, "items": [{"type": "string", "description": "execution_id"}]},
+            "params_schema": {
+                "type": "array",
+                "prefixItems": [
+                    {
+                        "type": "string",
+                        "description": "execution_id"
+                    }
+                ],
+                "minItems": 1,
+                "maxItems": 1,
+                "items": false
+            },
             "result_schema": {
-                "type": "object", "properties": {
-                    "execution_id": {"type": "string"},
-                    "status": {"type": "string", "enum": ["stop_requested", "not_running", "already_completed", "failed_to_stop", "not_stoppable"]},
-                    "message": {"type": ["string", "null"]}
-                }, "required": ["execution_id", "status"]
+                "type": "object",
+                "properties": {
+                    "execution_id": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "stop_requested",
+                            "not_running",
+                            "already_completed",
+                            "failed_to_stop",
+                            "not_stoppable",
+                            "stop_requested_no_force"
+                        ]
+                    },
+                    "message": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "required": [
+                    "execution_id",
+                    "status"
+                ]
             }
         }
     ]

@@ -5,12 +5,15 @@
     "capabilities": [
         {
             "method": "mcp.fs.list",
-            "description": "Lists files and directories in a given path. Path must be absolute or will be resolved against server's virtual root if not provided by a path-aware client (like the shell).",
+            "description": "Lists files and directories in a given path.",
             "params_schema": {
                 "type": "array",
-                "items": {"type": "string", "description": "The path to list. Should be absolute within the allowed virtual root."},
+                "prefixItems": [
+                    {"type": "string", "description": "The path to list. Should be absolute within the allowed virtual root."}
+                ],
                 "minItems": 1,
-                "maxItems": 1
+                "maxItems": 1,
+                "items": false 
             },
             "result_schema": {
                 "type": "array",
@@ -29,15 +32,16 @@
         },
         {
             "method": "mcp.fs.read",
-            "description": "Reads file content. Path must be absolute. Returns content as base64 for binary, or text for text files.",
+            "description": "Reads file content. Path must be absolute.",
             "params_schema": {
                 "type": "array",
-                "items": [
+                "prefixItems": [
                     {"type": "string", "description": "The absolute path to the file to read."},
-                    {"type": "string", "enum": ["text", "base64"], "default": "text", "description": "Encoding. 'text' attempts UTF-8, 'base64' for binary."}
+                    {"type": "string", "enum": ["text", "base64"], "default": "text", "description": "Encoding."}
                 ],
                 "minItems": 1,
-                "maxItems": 2
+                "maxItems": 2,
+                "items": false
             },
             "result_schema": {
                 "type": "object",
@@ -51,16 +55,18 @@
         },
         {
             "method": "mcp.fs.write",
-            "description": "Writes content to a file. Path must be absolute. Content can be text or base64.",
+            "description": "Writes content to a file. Path must be absolute.",
             "params_schema": {
                 "type": "array",
-                "items": [
+                "prefixItems": [
                     {"type": "string", "description": "Absolute path to the file to write."},
                     {"type": "string", "description": "Content to write."},
-                    {"type": "string", "enum": ["text", "base64"], "default": "text"},
-                    {"type": "boolean", "default": false, "description": "Append if true, overwrite otherwise."}
+                    {"type": "string", "enum": ["text", "base64"], "description": "Encoding type."},
+                    {"type": "boolean", "description": "Append if true, overwrite otherwise."}
                 ],
-                "minItems": 2, "maxItems": 4
+                "minItems": 2,
+                "maxItems": 4,
+                "items": false
             },
             "result_schema": {
                 "type": "object", "properties": {"path": {"type": "string"}, "bytes_written": {"type": "integer"}, "status": {"type": "string"}},
@@ -69,14 +75,16 @@
         },
         {
             "method": "mcp.fs.delete",
-            "description": "Deletes a file or an empty directory. Path must be absolute. Use 'recursive' for non-empty dirs.",
+            "description": "Deletes a file or an empty directory. Path must be absolute.",
             "params_schema": {
                 "type": "array",
-                "items": [
+                "prefixItems": [
                     {"type": "string", "description": "The absolute path to delete."},
-                    {"type": "boolean", "default": false, "description": "Recursively delete if non-empty directory."}
+                    {"type": "boolean", "description": "Recursively delete if non-empty directory."}
                 ],
-                "minItems": 1, "maxItems": 2
+                "minItems": 1,
+                "maxItems": 2,
+                "items": false
             },
             "result_schema": {
                 "type": "object", "properties": {"path": {"type": "string"}, "status": {"type": "string"}},
@@ -85,35 +93,50 @@
         },
         {
             "method": "mcp.fs.embed",
-            "description": "Generates/stores embeddings for a file or directory contents. Path must be absolute.",
+            "description": "Generates/stores embeddings for a file or directory contents.",
             "params_schema": {
                 "type": "array",
-                "items": [
+                "prefixItems": [
                     {"type": "string", "description": "Absolute path to file/directory to embed."},
-                    {"type": "boolean", "default": false, "description": "Recursively embed files in subdirectories."}
+                    {"type": "boolean", "description": "Recursively embed files in subdirectories."}
                 ],
-                "minItems": 1, "maxItems": 2
+                "minItems": 1,
+                "maxItems": 2,
+                "items": false
             },
             "result_schema": {
-                "type": "object", "properties": {"path_processed": {"type": "string"}, "files_embedded_this_run": {"type": "integer"}, "total_embeddings_in_index": {"type": "integer"}, "status": {"type": "string"}},
+                "type": "object", "properties": {
+                    "path_processed": {"type": "string"},
+                    "files_embedded_this_run": {"type": "integer"},
+                    "total_embeddings_in_index": {"type": "integer"},
+                    "status": {"type": "string"}
+                },
                 "required": ["path_processed", "files_embedded_this_run", "total_embeddings_in_index", "status"]
             }
         },
         {
             "method": "mcp.fs.search",
-            "description": "Searches for files based on semantic similarity using stored embeddings.",
+            "description": "Searches for files based on semantic similarity.",
             "params_schema": {
                 "type": "array",
-                "items": [
+                "prefixItems": [
                     {"type": "string", "description": "Query text for semantic search."},
                     {"type": "integer", "default": 5, "description": "Number of top results."},
-                    {"type": "string", "description": "Optional absolute path to restrict search scope. Use null or omit if no scope."}
+                    {"type": ["string", "null"], "description": "Optional absolute path to restrict search scope."}
                 ],
                 "minItems": 1, 
-                "maxItems": 3 
+                "maxItems": 3,
+                "items": false
             },
             "result_schema": {
-                "type": "array", "items": {"type": "object", "properties": {"path": {"type": "string"}, "score": {"type": "number"}, "preview": {"type": "string", "optional": true}}, "required": ["path", "score"]}
+                "type": "array", "items": {
+                    "type": "object", "properties": {
+                        "path": {"type": "string"},
+                        "score": {"type": "number"},
+                        "preview": {"type": "string"}
+                    },
+                    "required": ["path", "score"]
+                }
             }
         }
     ]
