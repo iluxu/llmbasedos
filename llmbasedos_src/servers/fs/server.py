@@ -7,6 +7,9 @@ from pathlib import Path
 from datetime import datetime, timezone
 import base64
 import magic # For MIME types
+# ... autres imports
+from docx import Document
+# from docx.text.paragraph import Paragraph # Pas nécessaire si on ne manipule que le texte
 from typing import Any, Dict, List, Optional, Tuple, Union
 import json # For FAISS metadata
 
@@ -139,6 +142,49 @@ def _load_embedding_model_sync(server: MCPServer):
         except Exception as e:
             server.logger.error(f"Failed to load ST model '{EMBEDDING_MODEL_NAME_CONF}': {e}", exc_info=True)
             server.embedding_enabled = False; raise # type: ignore
+
+def _read_docx_text_sync(file_path: Path) -> List[Dict[str, Any]]:
+    """Reads a .docx file and returns a list of paragraphs with their index and text."""
+    try:
+        document = Document(file_path)
+        # On retourne l'index et le texte pour pouvoir cibler la mise à jour plus tard
+        paragraphs_data = [
+            {"index": i, "text": p.text} 
+            for i, p in enumerate(document.paragraphs) 
+            if p.text.strip()
+        ]
+        fs_server.logger.info(f"Extracted {len(paragraphs_data)} non-empty paragraphs from {file_path.name}")
+        return paragraphs_data
+    except Exception as e:
+        fs_server.logger.error(f"Failed to read docx text from {file_path}: {e}", exc_info=True)
+        raise ValueError(f"Could not process the .docx file: {e}")
+
+def _update_docx_paragraphs_sync(file_path: Path, updates: List[Dict[str, Any]]):
+    """Updates specific paragraphs in a .docx file based on a list of {'index': X, 'new_text': '...'}.
+       Conserve le style du paragraphe.
+    """
+    try:
+        document = Document(file_path)
+        
+        # Créer un dictionnaire pour un accès rapide aux mises à jour
+        update_map = {item['index']: item['new_text'] for item in updates}
+
+        updated_count = 0
+        for i, p in enumerate(document.paragraphs):
+            if i in update_map:
+                new_text = update_map[i]
+                # Vider le paragraphe de son contenu existant (runs) pour insérer le nouveau
+                p.clear()
+                # Ajouter le nouveau texte. Le style du paragraphe est conservé.
+                p.add_run(new_text)
+                updated_count += 1
+        
+        document.save(file_path)
+        fs_server.logger.info(f"Updated {updated_count} paragraphs in {file_path.name}")
+        return updated_count
+    except Exception as e:
+        fs_server.logger.error(f"Failed to write docx text to {file_path}: {e}", exc_info=True)
+        raise ValueError(f"Could not save the updated .docx file: {e}")
 
 def _load_faiss_index_sync(server: MCPServer):
     if not server.embedding_enabled: return # type: ignore
@@ -318,6 +364,24 @@ async def handle_fs_write(server: MCPServer, request_id: Optional[Union[str, int
     except PermissionError as pe:
         raise server.create_custom_error(request_id, 1, f"Permission denied writing to '{client_path_str}'.", {"path": client_path_str}) from pe
 
+
+@fs_server.register_method("mcp.fs.read_docx_paragraphs")
+async def handle_fs_read_docx(server: MCPServer, request_id, params: List[Any]):
+    file_path_str = params[0]
+    target_file_abs = _validate_fs_path(file_path_str, check_exists=True, must_be_file=True)
+    if not target_file_abs.name.lower().endswith('.docx'):
+        raise ValueError(f"File '{file_path_str}' is not a .docx file.")
+    return await server.run_in_executor(_read_docx_text_sync, target_file_abs)
+
+@fs_server.register_method("mcp.fs.update_docx_paragraphs")
+async def handle_fs_update_docx(server: MCPServer, request_id, params: List[Any]):
+    file_path_str = params[0]
+    updates_list = params[1]
+    target_file_abs = _validate_fs_path(file_path_str, check_exists=True, must_be_file=True)
+    if not target_file_abs.name.lower().endswith('.docx'):
+        raise ValueError(f"File '{file_path_str}' is not a .docx file.")
+    paragraphs_updated = await server.run_in_executor(_update_docx_paragraphs_sync, target_file_abs, updates_list)
+    return {"path": file_path_str, "paragraphs_updated": paragraphs_updated, "status": "success"}
 
 @fs_server.register_method("mcp.fs.delete")
 async def handle_fs_delete(server: MCPServer, request_id: Optional[Union[str, int]], params: List[Any]):

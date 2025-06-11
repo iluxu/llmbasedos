@@ -92,6 +92,58 @@
             }
         },
         {
+            "method": "mcp.fs.read_docx_paragraphs",
+            "description": "Extracts text paragraphs from a .docx file, returning a list of objects with index and text.",
+            "params_schema": {
+                "type": "array",
+                "prefixItems": [{"type": "string", "description": "Virtual path to the .docx file."}],
+                "minItems": 1, "maxItems": 1, "items": false
+            },
+            "result_schema": {
+                "type": "array", 
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "index": {"type": "integer"},
+                        "text": {"type": "string"}
+                    },
+                    "required": ["index", "text"]
+                }
+            }
+        },
+        {
+            "method": "mcp.fs.update_docx_paragraphs",
+            "description": "Updates specific paragraphs in an existing .docx file.",
+            "params_schema": {
+                "type": "array",
+                "prefixItems": [
+                    {"type": "string", "description": "Virtual path to the .docx file to update."},
+                    {
+                        "type": "array", 
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "index": {"type": "integer"},
+                                "new_text": {"type": "string"}
+                            },
+                            "required": ["index", "new_text"]
+                        }, 
+                        "description": "List of paragraph updates."
+                    }
+                ],
+                "minItems": 2, "maxItems": 2, "items": false
+            },
+            "result_schema": {
+                "type": "object", 
+                "properties": {
+                    "path": {"type": "string"},
+                    "paragraphs_updated": {"type": "integer"},
+                    "status": {"type": "string"}
+                },
+                "required": ["path", "paragraphs_updated", "status"]
+            }
+        },
+        {
             "method": "mcp.fs.embed",
             "description": "Generates/stores embeddings for a file or directory contents.",
             "params_schema": {
