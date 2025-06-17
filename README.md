@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/iluxu-llmbasedos-badge.png)](https://mseep.ai/app/iluxu-llmbasedos)
+
 # llmbasedos
 
 `llmbasedos` is a system designed to expose local capabilities (files, mail, sync, agents) to various "host" applications (LLM frontends, VS Code plugins, etc.) via the **Model Context Protocol (MCP)**. It serves as a secure and standardized bridge between Large Language Models and your personal data and tools.
