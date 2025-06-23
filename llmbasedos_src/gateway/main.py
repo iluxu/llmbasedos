@@ -79,6 +79,22 @@ async def _start_unix_socket_server_logic():
         logger.error(f"Failed to start UNIX socket server on {socket_path_obj}: {e_start_unix}", exc_info=True)
         _unix_socket_server_instance = None
 
+async def _start_tcp_socket_server_logic():
+    global _tcp_socket_server_instance # Nouvelle variable globale
+    host = "0.0.0.0" # Écoute sur toutes les interfaces dans le conteneur
+    port = 8811      # Le port que socat va viser
+
+    try:
+        # _run_unix_socket_client_handler_managed peut être réutilisé car il lit/écrit sur un stream
+        _tcp_socket_server_instance = await asyncio.start_server(
+            _run_unix_socket_client_handler_managed, # On réutilise le même handler !
+            host,
+            port
+        )
+        logger.info(f"MCP Gateway also listening on TCP socket: {host}:{port}")
+    except Exception as e:
+        logger.error(f"Failed to start TCP socket server: {e}", exc_info=True)
+
 async def _stop_unix_socket_server_logic():
     global _unix_socket_server_instance
     if _unix_socket_server_instance:

@@ -31,7 +31,8 @@ class MCPServer:
                  server_name: str, 
                  caps_file_path_str: str, 
                  custom_error_code_base: int = -32000,
-                 socket_dir_str: str = "/run/mcp"):
+                 socket_dir_str: str = "/run/mcp",
+                 load_caps_on_init: bool = True):
         self.server_name = server_name
         self.socket_path = Path(socket_dir_str) / f"{self.server_name}.sock"
         self.caps_file_path = Path(caps_file_path_str)
@@ -56,7 +57,8 @@ class MCPServer:
         self.executor = ThreadPoolExecutor(max_workers=num_workers, thread_name_prefix=f"{self.server_name}_worker")
         self.logger.info(f"Initialized with {num_workers} worker threads.")
 
-        self._load_capabilities_and_schemas()
+        if load_caps_on_init:
+            self._load_capabilities_and_schemas()
 
         # Initialize hooks with default (no-op) implementations
         # User can override these by assigning a new callable to self.on_startup / self.on_shutdown
@@ -72,18 +74,29 @@ class MCPServer:
             self.logger.error(f"Cannot publish capabilities: Source file {self.caps_file_path} does not exist.")
             return
 
-        discovery_dir = Path("/run/mcp") # Devrait correspondre à MCP_CAPS_DIR du gateway
-        discovery_dir.mkdir(parents=True, exist_ok=True) # S'assurer que /run/mcp existe
+        discovery_dir = Path("/run/mcp")
+        discovery_dir.mkdir(parents=True, exist_ok=True)
         
-        # Le nom du fichier dans le répertoire de découverte est server_name.cap.json
         destination_cap_file = discovery_dir / f"{self.server_name}.cap.json"
         
+        # ====================================================================
+        # == CORRECTION : Ne rien faire si la source et la dest sont identiques ==
+        # ====================================================================
+        if self.caps_file_path.resolve() == destination_cap_file.resolve():
+            self.logger.debug(f"Capability file is already in the discovery directory. No copy needed.")
+            # On s'assure juste que les permissions sont bonnes
+            try:
+                os.chmod(destination_cap_file, 0o664)
+            except OSError as e:
+                self.logger.warning(f"Could not set permissions on existing capability file {destination_cap_file}: {e}")
+            return
+        # ====================================================================
+        # == FIN DE LA CORRECTION ==
+        # ====================================================================
+
         try:
             shutil.copyfile(self.caps_file_path, destination_cap_file)
-            # S'assurer que le fichier a les bonnes permissions pour que le gateway (llmuser) puisse le lire
-            # et que le serveur lui-même (llmuser) puisse le supprimer au shutdown.
-            # Le umask de llmuser devrait donner des perms raisonnables, sinon on peut chmod.
-            os.chmod(destination_cap_file, 0o664) # rw-rw-r-- (llmuser, llmgroup, others read)
+            os.chmod(destination_cap_file, 0o664)
             self.logger.info(f"Successfully published capability descriptor to {destination_cap_file}")
         except Exception as e:
             self.logger.error(f"Failed to publish capability descriptor from {self.caps_file_path} to {destination_cap_file}: {e}", exc_info=True)

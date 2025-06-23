@@ -12,6 +12,9 @@ services:
       context: .
       dockerfile: Dockerfile
     
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      
     container_name: llmbasedos_instance
     ports:
       - "${LLMBDO_GATEWAY_EXPOSED_PORT:-8000}:8000"
@@ -20,7 +23,7 @@ services:
       #    Le code dans ./llmbasedos_src/ sur votre hôte masquera celui
       #    copié dans l'image à /opt/app/llmbasedos/
       - ./llmbasedos_src:/opt/app/llmbasedos:rw # 'rw' est par défaut, mais explicite ici
-
+      - /var/run/docker.sock:/var/run/docker.sock:rw
       # 2. Fichiers de configuration montés depuis l'hôte (lecture seule)
       - ./llmbasedos_src/gateway/licence_tiers.yaml:/etc/llmbasedos/licence_tiers.yaml:ro
       - ./lic.key:/etc/llmbasedos/lic.key:ro 

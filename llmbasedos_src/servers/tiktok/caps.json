@@ -1,0 +1,52 @@
+{
+    "service_name": "tiktok",
+    "description": "Provides capabilities to interact with TikTok for trend analysis and content research.",
+    "version": "0.1.0",
+    "capabilities": [
+        {
+            "method": "mcp.tiktok.search",
+            "description": "Search for top trending TikTok videos based on a query.",
+            "params_schema": {
+                "type": "array",
+                "prefixItems": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search query for TikTok videos, e.g., 'AI productivity tools'."
+                            },
+                            "period_days": {
+                                "type": "integer",
+                                "description": "Search period in days, e.g., 7 for the last week.",
+                                "default": 7
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                ],
+                "minItems": 1,
+                "maxItems": 1,
+                "items": false
+            },
+            "result_schema": {
+                "type": "object",
+                "properties": {
+                    "videos": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "creator": {"type": "string"},
+                                "description": {"type": "string"},
+                                "views": {"type": "integer"},
+                                "url": {"type": "string", "format": "uri"}
+                            },
+                            "required": ["creator", "description", "views", "url"]
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}

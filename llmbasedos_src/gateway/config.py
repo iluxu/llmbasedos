@@ -80,7 +80,7 @@ if LICENCE_TIERS_CONFIG_PATH.exists() and LICENCE_TIERS_CONFIG_PATH.is_file():
 else:
     logging.info(f"Licence tiers config file not found at {LICENCE_TIERS_CONFIG_PATH}. Using permissive FREE default tiers.")
 
-
+#cat /var/log/supervisor/mcp-gateway.stdout.log
 # --- Upstream LLM Settings ---
 OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:

@@ -1,120 +1,180 @@
 import os
+import re
 from pathlib import Path
-import chardet # Pour détecter l'encodage des fichiers de manière plus robuste
-from typing import Optional, TypeVar
+import chardet
+from typing import Optional, List, Set
+
 # --- Configuration ---
-PROJECT_ROOT_PATH_STR = "."  # Chemin vers la racine de votre projet llmbasedos
-# (laisser "." si vous exécutez le script depuis la racine du projet)
+PROJECT_ROOT_PATH_STR = "."
+OUTPUT_FILENAME = "llmbasedos_project_ingestion.txt"
 
-# Extensions de fichiers dont on veut lire le contenu
-# Ajouter/supprimer des extensions selon les besoins
-CONTENT_EXTENSIONS = ['.py', '.json', '.yaml', '.yml', '.md', '.txt', '.sh', '.conf', '.service', '.env', '.dockerignore']
+# Extensions de fichiers dont on veut lire le contenu.
+# Une liste plus ciblée pour un projet Python/Docker.
+CONTENT_EXTENSIONS = {
+    '.py', '.json', '.yaml', '.yml', '.md', '.txt', '.sh', '.conf', 
+    '.service', '.env', '.dockerignore', '.gitignore', '.lock', 'Dockerfile'
+}
 
-# Répertoires à ignorer (ex: environnements virtuels, caches, builds Docker non pertinents)
-IGNORE_DIRS = ['.git', '.venv', '.vscode', '.idea', '__pycache__', 'work', 'out', 'build', 'dist', 'node_modules']
-# Fichiers spécifiques à ignorer
-IGNORE_FILES = [] # ex: ['.DS_Store']
+# --- Listes d'exclusion plus intelligentes ---
 
-MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024  # 1MB : Ne pas lire les fichiers trop gros
+# Répertoires à toujours ignorer (noms exacts)
+# On garde les plus courants. Le .gitignore s'occupera du reste.
+IGNORE_DIRS_EXACT = {
+    '.git', '.venv', '.vscode', '.idea', '__pycache__', 
+    'build', 'dist', 'node_modules'
+}
 
-# --- Fonctions Utilitaires ---
+# Motifs de répertoires/fichiers à ignorer (style glob)
+IGNORE_PATTERNS = {
+    '*.pyc', '*.pyo', '*.egg-info', '*.log', '*.swp', 'work/', 'out/',
+    '*cache*', '.DS_Store', OUTPUT_FILENAME
+}
+
+MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024  # 1MB
+
+# --- Fonctions Utilitaires Améliorées ---
+
+def load_gitignore_patterns(root_path: Path) -> Set[str]:
+    """Charge les motifs d'un fichier .gitignore et les convertit en regex."""
+    gitignore_path = root_path / ".gitignore"
+    patterns = set()
+    if not gitignore_path.is_file():
+        return patterns
+
+    with gitignore_path.open('r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            # Convertir le glob simple en regex. C'est une simplification,
+            # une vraie implémentation utiliserait une bibliothèque.
+            # Ceci gère les cas comme *.log, /build, node_modules/
+            regex = re.escape(line).replace(r'\*', '.*')
+            if regex.endswith('/'):
+                regex += '.*' # Ignorer tout ce qui est dans ce dossier
+            patterns.add(regex)
+    return patterns
+
+def is_likely_binary(file_path: Path, chunk_size: int = 1024) -> bool:
+    """Heuristique simple pour détecter les fichiers binaires."""
+    try:
+        with file_path.open('rb') as f:
+            chunk = f.read(chunk_size)
+        # Si le fichier contient un caractère nul, il est probablement binaire.
+        return b'\0' in chunk
+    except Exception:
+        return False
+
 def detect_encoding(file_path: Path) -> Optional[str]:
     """Tente de détecter l'encodage d'un fichier."""
     try:
         with file_path.open('rb') as f:
-            raw_data = f.read(1024 * 4) # Lire les premiers 4KB pour la détection
+            raw_data = f.read(4096)
             if not raw_data:
-                return 'utf-8' # Fichier vide, assumer utf-8
+                return 'utf-8'
             result = chardet.detect(raw_data)
             return result['encoding'] if result['encoding'] else 'utf-8'
     except Exception:
-        return 'utf-8' # Fallback
-
-def should_ignore(path: Path, root_path: Path) -> bool:
-    """Vérifie si un chemin doit être ignoré."""
-    relative_path_parts = path.relative_to(root_path).parts
-    for part in relative_path_parts:
-        if part in IGNORE_DIRS:
-            return True
-    if path.name in IGNORE_FILES:
-        return True
-    return False
+        return 'utf-8'
 
 # --- Script Principal ---
+
 def ingest_project_structure(project_root: str) -> str:
     """
     Parcourt le projet et génère une représentation textuelle de sa structure et du contenu
-    des fichiers pertinents.
+    des fichiers pertinents, en utilisant .gitignore et des filtres avancés.
     """
     root_path = Path(project_root).resolve()
     if not root_path.is_dir():
         return f"ERREUR: Le chemin du projet '{project_root}' n'est pas un répertoire valide."
 
-    output_lines = []
-    output_lines.append(f"# INGESTION DU PROJET LLMBASEDOS (Racine: {root_path})\n")
-    output_lines.append("=" * 50 + "\n")
+    # Charger les motifs .gitignore une seule fois
+    gitignore_regexes = load_gitignore_patterns(root_path)
 
-    for current_dir, dirnames, filenames in os.walk(root_path, topdown=True):
-        current_path = Path(current_dir)
+    output_lines = [
+        f"# INGESTION DU PROJET LLMBASEDOS (Racine: {root_path})",
+        "=" * 50, ""
+    ]
 
-        # Ignorer les répertoires spécifiés
-        dirnames[:] = [d for d in dirnames if not should_ignore(current_path / d, root_path)]
-        
-        if should_ignore(current_path, root_path) and current_path != root_path:
+    paths_to_process = sorted(list(root_path.rglob('*')))
+    processed_dirs = set()
+
+    for path in paths_to_process:
+        relative_path_str = str(path.relative_to(root_path))
+
+        # --- Logique de filtrage améliorée ---
+        if any(part in IGNORE_DIRS_EXACT for part in path.parts):
+            continue
+        if any(path.match(p) for p in IGNORE_PATTERNS):
+            continue
+        if any(re.search(p, relative_path_str) for p in gitignore_regexes):
             continue
 
-        relative_dir_path = current_path.relative_to(root_path)
-        depth = len(relative_dir_path.parts)
-        indent = "  " * depth
+        # Afficher le répertoire parent s'il n'a pas encore été traité
+        parent_dir = path.parent
+        if parent_dir not in processed_dirs:
+            # Afficher tous les répertoires parents jusqu'à la racine si nécessaire
+            for p in reversed(parent_dir.parents):
+                if p not in processed_dirs and p >= root_path:
+                    processed_dirs.add(p)
+            processed_dirs.add(parent_dir)
+            
+            relative_dir_path = parent_dir.relative_to(root_path)
+            depth = len(relative_dir_path.parts)
+            indent = "  " * depth
+            output_lines.append(f"{indent}Répertoire: ./{relative_dir_path if str(relative_dir_path) != '.' else ''}")
 
-        output_lines.append(f"{indent}Répertoire: ./{relative_dir_path if str(relative_dir_path) != '.' else ''}")
-
-        for filename in sorted(filenames):
-            file_path = current_path / filename
-            if should_ignore(file_path, root_path):
-                continue
-
+        if path.is_file():
+            relative_file_path = path.relative_to(root_path)
+            depth = len(relative_file_path.parts) - 1
             file_indent = "  " * (depth + 1)
-            output_lines.append(f"{file_indent}Fichier: {filename}")
+            output_lines.append(f"{file_indent}Fichier: {path.name}")
 
-            if file_path.suffix.lower() in CONTENT_EXTENSIONS:
+            # Vérifier si on doit lire le contenu
+            # On inclut le nom de fichier sans extension (ex: 'Dockerfile')
+            if path.name in CONTENT_EXTENSIONS or path.suffix.lower() in CONTENT_EXTENSIONS:
                 try:
-                    if file_path.stat().st_size > MAX_FILE_SIZE_BYTES:
-                        output_lines.append(f"{file_indent}  (Contenu > {MAX_FILE_SIZE_BYTES // (1024*1024)}MB, ignoré)")
+                    if path.stat().st_size > MAX_FILE_SIZE_BYTES:
+                        output_lines.append(f"{file_indent}  (Contenu > {MAX_FILE_SIZE_BYTES // 1024**2}MB, ignoré)")
                         continue
-                    if file_path.stat().st_size == 0:
+                    if path.stat().st_size == 0:
                         output_lines.append(f"{file_indent}  (Fichier vide)")
                         continue
+                    if is_likely_binary(path):
+                        output_lines.append(f"{file_indent}  (Fichier binaire présumé, ignoré)")
+                        continue
 
-                    encoding = detect_encoding(file_path)
-                    with file_path.open('r', encoding=encoding, errors='replace') as f_content:
+                    encoding = detect_encoding(path)
+                    with path.open('r', encoding=encoding, errors='replace') as f_content:
                         content = f_content.read()
+                    
                     output_lines.append(f"{file_indent}  --- Début Contenu ({encoding}) ---")
-                    # Indenter chaque ligne du contenu
                     for line in content.splitlines():
                         output_lines.append(f"{file_indent}  | {line}")
                     output_lines.append(f"{file_indent}  --- Fin Contenu ---")
-                except UnicodeDecodeError as ude:
-                    output_lines.append(f"{file_indent}  (Erreur de décodage avec {encoding}: {ude}, fichier binaire ?)")
+
                 except Exception as e:
                     output_lines.append(f"{file_indent}  (Erreur de lecture du contenu: {e})")
-        output_lines.append("") # Ligne vide entre les répertoires
+        
+        # Ajouter une ligne vide après le contenu d'un fichier ou entre les répertoires
+        output_lines.append("")
 
-    return "\n".join(output_lines)
+    return "\n".join(output_lines).replace("\n\n\n", "\n\n") # Nettoyer les sauts de ligne excessifs
 
 if __name__ == "__main__":
     print("Ce script va ingérer la structure et le contenu du projet.")
     print(f"Racine du projet configurée : {Path(PROJECT_ROOT_PATH_STR).resolve()}")
     print(f"Extensions de contenu lues : {CONTENT_EXTENSIONS}")
-    print(f"Répertoires ignorés : {IGNORE_DIRS}")
+    print(f"Répertoires exacts ignorés : {IGNORE_DIRS_EXACT}")
+    print(f"Motifs ignorés : {IGNORE_PATTERNS}")
+    print("Les motifs du fichier .gitignore seront aussi utilisés.")
     
     confirmation = input("Continuer ? (o/N) : ")
     if confirmation.lower() == 'o':
         project_data = ingest_project_structure(PROJECT_ROOT_PATH_STR)
-        output_filename = "llmbasedos_project_ingestion.txt"
-        with open(output_filename, "w", encoding="utf-8") as f_out:
+        with open(OUTPUT_FILENAME, "w", encoding="utf-8") as f_out:
             f_out.write(project_data)
-        print(f"\nL'ingestion du projet est terminée. Les données ont été sauvegardées dans : {output_filename}")
-        print(f"Vous pouvez maintenant copier le contenu de ce fichier dans une nouvelle fenêtre de chat.")
+        print(f"\nL'ingestion du projet est terminée. Les données ont été sauvegardées dans : {OUTPUT_FILENAME}")
+        print("Vous pouvez maintenant copier le contenu de ce fichier dans une nouvelle fenêtre de chat.")
     else:
         print("Ingestion annulée.")
