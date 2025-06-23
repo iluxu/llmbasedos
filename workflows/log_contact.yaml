@@ -1,0 +1,35 @@
+id: log_contact
+name: "Log Contact to History"
+description: "Appends a new contact to the JSON history file."
+input_schema:
+  type: object
+  properties:
+    prospect_data: { type: "object" }
+    history_file_path: { type: "string", default: "/outreach/contact_history.json" }
+type: mcp_sequential_agent
+steps:
+  - name: "Read Current History"
+    action: "mcp.fs.read"
+    params_template: ["{{ inputs.history_file_path }}"]
+    outputs_to_context:
+      history_json: "{{ result.content | from_json }}"
+    on_error:
+      set_context:
+        history_json: []
+
+  - name: "Append New Prospect"
+    action: "script"
+    script: |
+      history = context.get("history_json", [])
+      if isinstance(history, list):
+          history.append(inputs.get("prospect_data"))
+          context["new_history_json"] = history
+      else: # Handle case where history is not a list
+          context["new_history_json"] = [inputs.get("prospect_data")]
+
+  - name: "Write Updated History File"
+    action: "mcp.fs.write"
+    params_template:
+      - "{{ inputs.history_file_path }}"
+      - "{{ context.new_history_json | to_json }}" # Needs a 'to_json' filter
+      - "text"

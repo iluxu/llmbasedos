@@ -124,13 +124,33 @@ async def handle_mcp_request(
         return create_mcp_response(request_id, result=get_licence_info_for_mcp_call(client_websocket_for_context))
 
     # Gestion spécifique de mcp.llm.chat
+    # Dans llmbasedos_src/gateway/dispatch.py
+
+    # Gestion spécifique de mcp.llm.chat
     if method_name == "mcp.llm.chat":
         try:
-            llm_params = request.get("params", [])
-            messages = llm_params[0]
-            options = llm_params[1] if len(llm_params) > 1 else {}
-            stream = options.get("stream", False)
-            return await upstream.call_llm_chat_completion(messages, licence_details, options.get("model"), stream, **options)
+            # S'assurer que params est une liste, sinon créer une erreur
+            if not isinstance(params, list):
+                 return create_mcp_error(request_id, JSONRPC_INVALID_PARAMS, "Params for mcp.llm.chat must be an array.")
+
+            messages = params[0]
+            options = params[1] if len(params) > 1 and isinstance(params[1], dict) else {}
+            
+            # Correction : on retire la clé 'stream' des options pour éviter le conflit
+            stream_flag = options.pop("stream", False)
+            
+            # Correction : on retire aussi 'model' des options pour le passer explicitement
+            model_alias = options.pop("model", None)
+
+            # Appel complet et correct de la fonction avec tous les arguments
+            return await upstream.call_llm_chat_completion(
+                messages=messages, 
+                licence=licence_details, 
+                request_id=request_id,
+                requested_model_alias=model_alias, 
+                stream=stream_flag, 
+                **options  # Le reste des options (temperature, etc.) est passé ici
+            )
         except Exception as e:
             logger.error(f"Error in llm.chat dispatch: {e}", exc_info=True)
             return create_mcp_error(request_id, JSONRPC_INTERNAL_ERROR, "Failed to process llm.chat request.")

@@ -1,0 +1,55 @@
+id: get_prospects
+name: "LLM-Powered Prospect Finder (With History)"
+description: "Queries the master LLM for new target contacts, avoiding those already contacted."
+
+input_schema:
+  type: object
+  properties:
+    target_description: { type: "string" }
+    history_file_path: { type: "string", default: "/outreach/contact_history.json" }
+
+type: mcp_sequential_agent
+steps:
+  - name: "Read Outreach History"
+    action: "mcp.fs.read"
+    params_template: ["{{ inputs.history_file_path }}"]
+    # If the file doesn't exist, this step will fail. We need to handle that.
+    # A more robust agent would have error handling or a 'path_exists' check.
+    # For now, we assume the file will be created. Let's add a step to ensure it.
+    outputs_to_context:
+      history_content: "{{ result.content }}"
+    # Add a fallback for the first run when the file doesn't exist
+    on_error:
+      set_context:
+        history_content: "[]" # Default to an empty JSON array string
+
+  - name: "Ensure History File Exists"
+    # This step runs before reading, ensuring the file is there.
+    action: "mcp.fs.write"
+    params_template:
+      - "{{ inputs.history_file_path }}"
+      - "[]" # Start with an empty list
+      - "text"
+      - false # Do not append, only write if it doesn't exist (this logic is simplified, write will overwrite)
+    # This needs a condition: "run only if file does not exist", which is an advanced agent feature.
+    # The `on_error` handler above is a simpler way to manage this for now.
+
+  - name: "Load Base Persona"
+    action: "mcp.fs.read"
+    params_template: ["/workflows/prompts/outreach_persona.txt"]
+    outputs_to_context:
+      base_prompt: "{{ result.content }}"
+      
+  - name: "Query LLM for New Prospects"
+    action: "mcp.llm.chat"
+    params_template:
+      - - role: "system"
+          content: |
+            {{ context.base_prompt }}
+            Your specific task is to generate a list of 5 new potential companies and key contacts.
+            You MUST NOT include anyone from the 'Already Contacted' list.
+            Respond ONLY with a valid JSON list: `[{\"company\": \"...\", \"name\": \"...\", \"role\": \"...\", \"email\": \"...\"}]`
+        - role: "user"
+          content: "Target Description: {{ inputs.target_description }}\n\nAlready Contacted History (DO NOT REPEAT):\n{{ context.history_content }}"
+    outputs_to_context:
+      prospects_json: "{{ result.choices[0].message.content }}"

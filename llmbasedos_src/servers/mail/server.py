@@ -10,6 +10,11 @@ from email.utils import parseaddr, parsedate_to_datetime, getaddresses # Standar
 from datetime import datetime, timezone # Standard library
 import base64 # Standard library
 
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.header import Header
+
 from imapclient import IMAPClient # External dep
 from imapclient.exceptions import IMAPClientError, LoginError # External dep
 from icalendar import Calendar # External dep
@@ -406,6 +411,55 @@ async def handle_mail_get_message(server: MCPServer, request_id: str, params: Li
         server.logger.error(f"IMAPClientError in getMessage for {account_id}/{folder_name_str}/{msg_uid_int}: {imap_e}", exc_info=True)
         raise RuntimeError(f"Server error getting message UID {msg_uid_int}.")
 
+
+@mail_server.register("mcp.mail.send_email")
+async def handle_send_email(server: MCPServer, request_id: str, params: List[Any]):
+    """
+    Handles sending an email via a configured account using SMTP.
+    """
+    if not params or not isinstance(params[0], dict):
+        raise ValueError("Invalid parameters for send_email. Expected a single dictionary object.")
+
+    options = params[0]
+    account_id = options.get("account_id")
+    to_email = options.get("to")
+    subject = options.get("subject")
+    body = options.get("body")
+
+    if not all([account_id, to_email, subject, body]):
+        raise ValueError("Missing required fields in params: account_id, to, subject, body.")
+    
+    if account_id not in server.mail_accounts:
+        raise ValueError(f"Mail account '{account_id}' not found in configuration.")
+
+    acc_conf = server.mail_accounts[account_id]
+    
+    # Utilise les paramètres de l'account ou des valeurs par défaut pour Gmail
+    smtp_host = acc_conf.get("smtp_host", "smtp.gmail.com")
+    smtp_port = int(acc_conf.get("smtp_port", 587))
+    from_email = acc_conf.get("email", acc_conf.get("user"))
+    password = acc_conf.get("password") # IMPORTANT: doit être un Mot de Passe d'Application pour Gmail
+
+    def send_sync():
+        msg = MIMEMultipart()
+        msg['From'] = from_email
+        msg['To'] = to_email
+        msg['Subject'] = Header(subject, 'utf-8')
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+        try:
+            server.logger.info(f"Connecting to SMTP server {smtp_host}:{smtp_port}...")
+            with smtplib.SMTP(smtp_host, smtp_port) as smtp_server:
+                smtp_server.starttls()
+                smtp_server.login(from_email, password)
+                smtp_server.send_message(msg)
+            server.logger.info(f"Email successfully sent to {to_email}.")
+            return {"status": "success", "recipient": to_email}
+        except Exception as e:
+            server.logger.error(f"Failed to send email via account {account_id}: {e}", exc_info=True)
+            raise RuntimeError(f"SMTP Error: {e}")
+
+    return await server.run_in_executor(send_sync)
 
 @mail_server.register("mcp.mail.parseIcalendar")
 async def handle_mail_parse_icalendar(server: MCPServer, request_id: str, params: List[Any]):

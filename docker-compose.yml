@@ -45,6 +45,7 @@ services:
       - PYTHONUNBUFFERED=1
       - LLMBDO_LOG_LEVEL=${LLMBDO_LOG_LEVEL:-INFO}
       - OPENAI_API_KEY=${OPENAI_API_KEY:?err_openai_api_key_not_set_in_env_file}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:?err_gemini_api_key_not_set_in_env_file}
       # Exemple pour llama.cpp sur l'hôte (si Docker Desktop avec WSL2)
       # - LLAMA_CPP_URL=http://host.docker.internal:8080 
       - LLMBDO_FS_DATA_ROOT=/mnt/user_data # Utilisé par fs_server.py pour déterminer sa racine virtuelle

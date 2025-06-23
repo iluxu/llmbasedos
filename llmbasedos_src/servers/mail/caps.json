@@ -54,6 +54,23 @@
                 }
             }
         },
+		{
+			"method": "mcp.mail.send_email",
+			"description": "Sends an email using a configured account.",
+			"params_schema": {
+				"type": "array",
+				"items": [{
+					"type": "object",
+					"properties": {
+						"account_id": {"type": "string"},
+						"to": {"type": "string"},
+						"subject": {"type": "string"},
+						"body": {"type": "string"}
+					},
+					"required": ["account_id", "to", "subject", "body"]
+				}]
+			}
+		},
         {
             "method": "mcp.mail.getMessage",
             "description": "Retrieves a specific message.",

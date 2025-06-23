@@ -1,0 +1,42 @@
+id: continuous_outreach
+name: "Perpetual Growth Machine (Stateful)"
+description: "Continuously finds new prospects, sends them personalized outreach, and logs the interaction to prevent duplicates."
+
+input_schema:
+  type: object
+  properties:
+    target_description: { type: "string", default: "Venture Capital firms in Brussels investing in AI" }
+    history_file_path: { type: "string", default: "/outreach/contact_history.json" }
+
+type: mcp_sequential_agent
+steps:
+  - name: "Get List of New Prospects"
+    action: "mcp.agent.runWorkflow"
+    params_template:
+      - "get_prospects"
+      - target_description: "{{ inputs.target_description }}"
+        history_file_path: "{{ inputs.history_file_path }}"
+    outputs_to_context:
+      prospects_list: "{{ result.output.prospects_json | from_json }}"
+
+  - name: "Loop Through Prospects and Process"
+    action: "loop"
+    items: "{{ context.prospects_list }}"
+    loop_variable: "prospect"
+    loop_steps:
+      - name: "Send Outreach Email"
+        action: "mcp.agent.runWorkflow"
+        params_template:
+          - "send_outreach_email" # This workflow generates and sends the email
+          - prospect: "{{ loop.prospect }}"
+        # We can add an on_success hook here
+        on_success:
+          run_workflow:
+            id: "log_contact"
+            inputs:
+              prospect_data: "{{ loop.prospect }}"
+              history_file_path: "{{ inputs.history_file_path }}"
+
+      - name: "Wait Between Emails"
+        action: "sleep"
+        duration_seconds: 300
