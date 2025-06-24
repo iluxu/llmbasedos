@@ -25,6 +25,14 @@ mkdir -p /run/mcp
 chown llmuser:llmuser /run/mcp # Ou llmuser:root, ou llmuser:llmgroup si llmgroup existe et est pertinent
 chmod 775 /run/mcp           # rwxrwxr-x (llmuser et son groupe peuvent écrire)
 
+# CORRECTION FINALE : Changer le propriétaire du volume monté
+# pour que llmuser ait le droit d'écrire dedans.
+if [ -d "/mnt/user_data" ]; then
+    echo "Adjusting ownership of /mnt/user_data for llmuser..."
+    chown -R llmuser:llmuser /mnt/user_data
+fi
+
+
 echo "Entrypoint: Permissions adjusted."
 
 # Execute the command passed to this script (CMD from Dockerfile, which is supervisord)

@@ -334,35 +334,43 @@ async def handle_fs_read(server: MCPServer, request_id: Optional[Union[str, int]
 
 
 @fs_server.register_method("mcp.fs.write")
-async def handle_fs_write(server: MCPServer, request_id: Optional[Union[str, int]], params: List[Any]):
+async def handle_fs_write(server: MCPServer, request_id, params: List[Any]):
     client_path_str = params[0]
     content_to_write = params[1]
     encoding_type = params[2] if len(params) > 2 else "text"
     append_mode = params[3] if len(params) > 3 else False
     
-    target_file_abs = _validate_fs_path(client_path_str, check_exists=False) # File may not exist
+    target_file_abs = _validate_fs_path(client_path_str, check_exists=False)
 
-    if not target_file_abs.parent.is_dir():
-         raise ValueError(f"Parent directory for '{client_path_str}' does not exist or is not a directory.")
-    if target_file_abs.exists() and target_file_abs.is_dir():
-        raise ValueError(f"Cannot write to '{client_path_str}', it is an existing directory.")
+    try:
+        target_file_abs.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise ValueError(f"Could not create parent directory for '{client_path_str}': {e}")
+
+    if target_file_abs.is_dir():
+        raise ValueError(f"Cannot write to '{client_path_str}', it is a directory.")
 
     def write_file_sync():
         bytes_to_write: bytes
-        if encoding_type == "text": bytes_to_write = content_to_write.encode('utf-8')
-        elif encoding_type == "base64":
-            try: bytes_to_write = base64.b64decode(content_to_write)
-            except Exception: raise ValueError("Invalid base64 content for writing.")
-        else: raise ValueError(f"Unsupported encoding type '{encoding_type}'.")
+        if encoding_type == "text":
+            bytes_to_write = str(content_to_write).encode('utf-8') # Assurer que c'est une str
+        else:
+            bytes_to_write = base64.b64decode(content_to_write)
 
         mode = 'ab' if append_mode else 'wb'
-        with target_file_abs.open(mode) as f: num_bytes_written = f.write(bytes_to_write)
-        return {"path": _get_client_facing_path(target_file_abs), "bytes_written": num_bytes_written, "status": "success"}
+        with target_file_abs.open(mode) as f:
+            num_bytes = f.write(bytes_to_write)
+        return {"path": client_path_str, "bytes_written": num_bytes, "status": "success"}
 
-    try: return await server.run_in_executor(write_file_sync)
-    except ValueError as ve: raise
+    try:
+        return await server.run_in_executor(write_file_sync)
     except PermissionError as pe:
-        raise server.create_custom_error(request_id, 1, f"Permission denied writing to '{client_path_str}'.", {"path": client_path_str}) from pe
+        # CORRECTION : On lève une vraie PermissionError avec un message clair.
+        # Le framework MCPServer l'attrapera et la formatera en erreur JSON-RPC.
+        server.logger.error(f"Permission denied writing to {target_file_abs}", exc_info=True)
+        raise PermissionError(f"Permission denied writing to path '{client_path_str}'. Check volume permissions.")
+    except ValueError as ve:
+        raise ve # Laisser le framework gérer
 
 
 @fs_server.register_method("mcp.fs.read_docx_paragraphs")

@@ -1,0 +1,62 @@
+[
+  {
+    "name": "Robert Half",
+    "specialization": "Finance & Accounting, Financial Services, IT, Administrative & HR",
+    "website": "https://www.roberthalf.be",
+    "address": "Avenue Louise 149, 1050 Brussels, Belgium"
+  },
+  {
+    "name": "Michael Page",
+    "specialization": "Executive search, Finance, Sales & Marketing, IT, Engineering",
+    "website": "https://www.michaelpage.be",
+    "address": "Avenue Louise 326, 1050 Brussels, Belgium"
+  },
+  {
+    "name": "Hays",
+    "specialization": "IT, Construction & Property, Life Sciences, Finance, Office Support",
+    "website": "https://www.hays.be",
+    "address": "Rue Belliard 4-6, 1040 Brussels, Belgium"
+  },
+  {
+    "name": "Randstad",
+    "specialization": "Wide range of sectors including temporary and permanent staffing, Inhouse services",
+    "website": "https://www.randstad.be",
+    "address": "Access Building, Rue Charles Lemaire 1, 1160 Auderghem, Belgium"
+  },
+  {
+    "name": "Robert Walters",
+    "specialization": "Legal, Banking & Financial Services, IT, Sales & Marketing",
+    "website": "https://www.robertwalters.be",
+    "address": "Avenue Louise 2, 1050 Brussels, Belgium"
+  },
+  {
+    "name": "Experis",
+    "specialization": "IT, Engineering, Finance, Life Sciences",
+    "website": "https://www.experis.be",
+    "address": "Avenue des Communaut\u00e9s 110, 1200 Woluwe-Saint-Lambert, Belgium"
+  },
+  {
+    "name": "Adecco",
+    "specialization": "Office, Industrial, Logistics, Sales, Hospitality, Medical",
+    "website": "https://www.adecco.be",
+    "address": "Boulevard Anspach 1, 1000 Brussels, Belgium"
+  },
+  {
+    "name": "Walters People",
+    "specialization": "Junior to medior level temporary and permanent roles in Finance & Business Support",
+    "website": "https://www.walterspeople.be",
+    "address": "Avenue Louise 2, 1050 Brussels, Belgium"
+  },
+  {
+    "name": "Progressive Recruitment",
+    "specialization": "IT, Engineering, Life Sciences, Supply Chain",
+    "website": "https://www.progressiverecruitment.com",
+    "address": "Avenue Louise 130A, 1050 Brussels, Belgium"
+  },
+  {
+    "name": "Axis Career",
+    "specialization": "Multilingual administrative staff (Personal Assistants, Management Assistants, Office Managers)",
+    "website": "https://www.axis.jobs",
+    "address": "Rue du Congr\u00e8s 37, 1000 Brussels, Belgium"
+  }
+]

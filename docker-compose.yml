@@ -18,6 +18,7 @@ services:
     container_name: llmbasedos_instance
     ports:
       - "${LLMBDO_GATEWAY_EXPOSED_PORT:-8000}:8000"
+  
     volumes:
       # 1. MONTAGE DU CODE SOURCE LOCAL (pour le développement)
       #    Le code dans ./llmbasedos_src/ sur votre hôte masquera celui

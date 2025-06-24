@@ -1,5 +1,0 @@
-# llmbasedos/servers/agent/requirements.txt
-pyyaml>=6.0
-docker>=6.0.0 # For Docker-based agents
-requests>=2.25.0 # For HTTP-based agents like n8n-lite
-# aiohttp if async HTTP calls are preferred for n8n-lite from async handlers

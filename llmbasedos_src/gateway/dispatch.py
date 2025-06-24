@@ -77,83 +77,59 @@ async def handle_mcp_request(
     client_websocket_for_context: Any 
 ) -> Union[Dict[str, Any], AsyncGenerator[Dict[str, Any], None]]:
     
-    request_id = request.get("id")
+    request_id = request.get("id") # Garder l'ID de la requête MCP originale
     method_name = request.get("method", "").strip()
     params = request.get("params", []) 
-
-    if not method_name:
-        return create_mcp_error(request_id, JSONRPC_INVALID_REQUEST, "Method name must be non-empty.")
-
-    # --- DÉBALLAGE DE LA REQUÊTE DE L'UI ---
-    if method_name in ["call-tool", "execute_llmbasedos_command"]:
-        logger.info(f"Gateway: Received a wrapped call '{method_name}'. Unwrapping...")
-        try:
-            # Gérer les deux formats possibles pour les paramètres
-            wrapped_params = params[0] if isinstance(params, list) and len(params) > 0 and isinstance(params[0], dict) else params
-            
-            real_method = wrapped_params.get("method")
-            real_params = wrapped_params.get("params")
-
-            if not isinstance(real_method, str):
-                raise ValueError("Wrapped call is missing a 'method' string.")
-
-            logger.info(f"Gateway: Unwrapped to -> Method: '{real_method}', Params: {str(real_params)[:100]}...")
-            
-            # Reconstruire la requête pour que le reste du système l'utilise
-            request = {
-                "jsonrpc": "2.0",
-                "method": real_method,
-                "params": real_params,
-                "id": request_id
-            }
-            # Mettre à jour les variables locales pour la suite de la fonction
-            method_name = real_method
-
-        except (ValueError, TypeError, IndexError) as e:
-            logger.error(f"Failed to unwrap call: {e}. Original params: {params}", exc_info=True)
-            return create_mcp_error(request_id, JSONRPC_INVALID_PARAMS, f"Invalid wrapped call format: {e}")
-
-    # Le reste de la logique utilise maintenant la requête (potentiellement modifiée)
     
-    # Gestion des méthodes internes au Gateway
-    if method_name == "mcp.hello":
-        return create_mcp_response(request_id, result=registry.get_all_registered_method_names())
-    if method_name == "mcp.listCapabilities":
-        return create_mcp_response(request_id, result=registry.get_detailed_capabilities_list())
-    if method_name == "mcp.licence.check":
-        return create_mcp_response(request_id, result=get_licence_info_for_mcp_call(client_websocket_for_context))
-
-    # Gestion spécifique de mcp.llm.chat
-    # Dans llmbasedos_src/gateway/dispatch.py
+    # ... (logique de déballage de la requête UI, mcp.hello, mcp.listCapabilities, mcp.licence.check) ...
 
     # Gestion spécifique de mcp.llm.chat
     if method_name == "mcp.llm.chat":
         try:
-            # S'assurer que params est une liste, sinon créer une erreur
             if not isinstance(params, list):
                  return create_mcp_error(request_id, JSONRPC_INVALID_PARAMS, "Params for mcp.llm.chat must be an array.")
 
             messages = params[0]
             options = params[1] if len(params) > 1 and isinstance(params[1], dict) else {}
             
-            # Correction : on retire la clé 'stream' des options pour éviter le conflit
             stream_flag = options.pop("stream", False)
-            
-            # Correction : on retire aussi 'model' des options pour le passer explicitement
             model_alias = options.pop("model", None)
 
-            # Appel complet et correct de la fonction avec tous les arguments
-            return await upstream.call_llm_chat_completion(
+            # Appel à upstream.call_llm_chat_completion
+            llm_api_response_or_generator = await upstream.call_llm_chat_completion(
+                request_id=request_id, # Passer l'ID de la requête MCP pour la gestion des erreurs dans upstream
                 messages=messages, 
                 licence=licence_details, 
-                request_id=request_id,
                 requested_model_alias=model_alias, 
                 stream=stream_flag, 
-                **options  # Le reste des options (temperature, etc.) est passé ici
+                **options
             )
+
+            # --- MODIFICATION IMPORTANTE ICI ---
+            if isinstance(llm_api_response_or_generator, AsyncGenerator):
+                # Si c'est un stream, upstream.call_llm_chat_completion doit déjà
+                # générer des réponses JSON-RPC valides (avec "result" ou "error").
+                # Donc, on le retourne directement.
+                logger.debug(f"Dispatching LLM stream for request ID {request_id}")
+                return llm_api_response_or_generator
+            elif isinstance(llm_api_response_or_generator, dict):
+                # Si c'est une réponse unique (non-stream)
+                if "error" in llm_api_response_or_generator: # Si upstream a déjà formaté une erreur JSON-RPC
+                    logger.warning(f"LLM call for ID {request_id} resulted in upstream error: {llm_api_response_or_generator['error']}")
+                    return llm_api_response_or_generator # C'est déjà une erreur MCP valide
+                else:
+                    # Encapsuler la réponse de l'API LLM dans un "result" JSON-RPC
+                    logger.debug(f"LLM call for ID {request_id} successful, wrapping result.")
+                    return create_mcp_response(request_id, result=llm_api_response_or_generator)
+            else:
+                # Cas inattendu si upstream ne retourne ni dict ni AsyncGenerator
+                logger.error(f"Unexpected response type from upstream.call_llm_chat_completion for ID {request_id}: {type(llm_api_response_or_generator)}")
+                return create_mcp_error(request_id, JSONRPC_INTERNAL_ERROR, "Internal error: Unexpected response type from LLM upstream handler.")
+
         except Exception as e:
-            logger.error(f"Error in llm.chat dispatch: {e}", exc_info=True)
-            return create_mcp_error(request_id, JSONRPC_INTERNAL_ERROR, "Failed to process llm.chat request.")
+            logger.error(f"Error in mcp.llm.chat dispatch for ID {request_id}: {e}", exc_info=True)
+            return create_mcp_error(request_id, JSONRPC_INTERNAL_ERROR, f"Failed to process mcp.llm.chat request: {type(e).__name__}")
+
 
     # Routage vers les services backend
     routing_info = registry.get_capability_routing_info(method_name)

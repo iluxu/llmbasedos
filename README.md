@@ -1,121 +1,140 @@
 # llmbasedos
 
-`llmbasedos` is a system designed to expose local capabilities (files, mail, sync, agents) to various "host" applications (LLM frontends, VS Code plugins, etc.) via the **Model Context Protocol (MCP)**. It serves as a secure and standardized bridge between Large Language Models and your personal data and tools.
+`llmbasedos` is not just a framework or set of plugins. It is a **cognitive operating system** designed to transform your computer from a passive executor into an **autonomous partner** — capable of perceiving, reasoning, and acting across both local and cloud contexts.
 
-Primarily deployed via **Docker**, `llmbasedos` can also be built as a minimal Arch Linux based ISO for dedicated appliances.
+It does this by exposing all system capabilities (files, mail, APIs, agents) to any intelligent model — LLM or not — via the **Model Context Protocol (MCP)**: a simple, powerful JSON-RPC layer running over UNIX sockets and WebSockets.
 
-## Core Architecture (Docker Deployment)
+The vision is to make **personal agentivity** real — by empowering AI agents to perform meaningful tasks on your behalf with minimal plumbing, friction, or boilerplate.
 
-The system is composed of several key Python components, typically running within a single Docker container managed by **Supervisord**:
+---
 
-1.  **Gateway (`llmbasedos_pkg/gateway/`)**:
-    *   Central MCP router (FastAPI + WebSockets/UNIX Sockets).
-    *   Handles authentication (licence key from `/etc/llmbasedos/lic.key`, tiers from `/etc/llmbasedos/licence_tiers.yaml`), authorization, and rate limiting.
-    *   Dynamically discovers backend server capabilities by reading `/run/mcp/*.cap.json` files.
-    *   Proxies `mcp.llm.chat` to configured LLMs (OpenAI, llama.cpp, etc., defined in `AVAILABLE_LLM_MODELS` in gateway config), applying quotas.
+## ✨ What Makes llmbasedos Different?
 
-2.  **MCP Servers (`llmbasedos_pkg/servers/*/`)**:
-    *   Python daemons, each providing specific MCP capabilities over a UNIX socket.
-    *   Built using a common `llmbasedos.mcp_server_framework.MCPServer` base class.
-    *   Each server publishes its `SERVICE_NAME.cap.json` to `/run/mcp/` for discovery by the gateway.
-    *   **FS Server (`servers/fs/`)**: File system operations (list, read, write, delete, semantic embed/search via SentenceTransformers/FAISS). Path access is confined within a configurable "virtual root" (e.g., `/mnt/user_data` in Docker). FAISS index stored in a persistent volume.
-    *   **Sync Server (`servers/sync/`)**: Wrapper for `rclone` for file synchronization tasks. Requires `rclone.conf`.
-    *   **Mail Server (`servers/mail/`)**: IMAP client for email access and iCalendar parsing. Accounts configured in `/etc/llmbasedos/mail_accounts.yaml`.
-    *   **Agent Server (`servers/agent/`)**: Executes agentic workflows defined in YAML files (from `/etc/llmbasedos/workflows`), potentially interacting with Docker (if Docker-in-Docker setup or socket passthrough) or HTTP services.
+* 🔌 **Unified Abstraction Layer**: All capabilities (LLM calls, file ops, mail, browser, rclone, etc.) are exposed as MCP methods, fully discoverable and callable.
+* 🧠 **LLM-Agnostic**: Use OpenAI, Gemini, LLaMA.cpp, or local models interchangeably. The system routes `mcp.llm.chat` requests via your preferred backend.
+* 🧰 **Script-first, not YAML**: Agent workflows are Python scripts, not rigid YAML trees. That means full logic, full debugging, and full flexibility.
+* 🔒 **Local-first, Secure-by-default**: Data stays local unless explicitly bridged. The OS abstracts I/O without exposing sensitive paths or tokens.
 
-3.  **Shell (`llmbasedos_pkg/shell/`)**:
-    *   `luca-shell`: An interactive Python REPL (using `prompt_toolkit`) that runs on your **host machine** (or wherever you need a client).
-    *   Acts as an MCP client, connecting to the gateway's WebSocket endpoint.
-    *   Translates shell commands (built-in aliases like `ls`, `cat`, or direct MCP calls) to the gateway.
-    *   Supports command history, basic autocompletion, and LLM chat streaming.
+---
 
-## Communication Protocol
+## 🧠 Philosophy & Paradigm Shift
 
-*   All inter-component communication uses **Model Context Protocol (MCP)**.
-*   MCP is implemented as JSON-RPC 2.0 messages.
-*   Transport:
-    *   External hosts (like `luca-shell`) to Gateway: WebSocket (e.g., `ws://localhost:8000/ws`).
-    *   Gateway to Backend Servers (within Docker): UNIX domain sockets (e.g., `/run/mcp/fs.sock`) with JSON messages delimited by `\0`.
+> "The true power of AI is not in the model, but in its ability to act contextually."
 
-## Security Considerations
+Where most projects focus on “the agent,” llmbasedos focuses on the **substrate**: a runtime and interface that lets agents — whether LLM-driven or human-written — perform intelligent tasks, access context, and automate real workflows.
 
-*   **Path Validation**: FS server operations are restricted by a "virtual root" to prevent arbitrary file system access.
-*   **Licence & Auth**: Gateway enforces access based on a licence key and configured tiers.
-*   **Secrets**: API keys (OpenAI, etc.) and email passwords **must be provided via environment variables** (e.g., through an `.env` file with `docker-compose`) and are not part of the image.
-*   **Docker Volumes**: Sensitive configuration files (`lic.key`, `mail_accounts.yaml`, `rclone.conf`) are mounted as read-only volumes into the container.
+Just like Unix abstracted away hardware with file descriptors, **llmbasedos abstracts cognitive capabilities** with the MCP.
 
-## Deployment (Docker - Recommended)
+---
 
-1.  **Prerequisites**: Docker and Docker Compose (or `docker compose` CLI v2).
-2.  **Clone the repository.**
-3.  **Project Structure**: Ensure your Python application code (`gateway/`, `servers/`, `shell/`, `mcp_server_framework.py`, `common_utils.py`) is inside a top-level directory (e.g., `llmbasedos_src/`) within your project root. This `llmbasedos_src/` directory will be treated as the `llmbasedos` Python package inside the Docker image.
-4.  **Configuration**:
-    *   At the project root (next to `docker-compose.yml`):
-        *   Create/Edit `.env`: Define `OPENAI_API_KEY` and other environment variables (e.g., `LLMBDO_LOG_LEVEL`).
-        *   Create/Edit `lic.key`: Example: `FREE:youruser:2025-12-31`
-        *   Create/Edit `mail_accounts.yaml`: For mail server accounts.
-        *   Create/Edit `gateway/licence_tiers.yaml`: To define licence tiers (if you want to override defaults that might be in `gateway/config.py`).
-        *   Create `./workflows/` directory and add your agent workflow YAML files.
-        *   Create `./user_files/` directory and add any files you want the FS server to access.
-        *   Ensure `supervisord.conf` is present and correctly configured (especially the `directory` for each program).
-5.  **Build the Docker Image**:
-    ```bash
-    docker compose build
-    ```
-6.  **Run the Services**:
-    ```bash
-    docker compose up
-    ```
-7.  **Interact**:
-    *   The MCP Gateway will be accessible on `ws://localhost:8000/ws` (or the port configured via `LLMBDO_GATEWAY_EXPOSED_PORT` in `.env`).
-    *   Run `luca-shell` from your host machine (ensure its Python environment has dependencies from `llmbasedos_src/shell/requirements.txt` installed):
-        ```bash
-        # From project root, assuming venv is activated
-        python -m llmbasedos_src.shell.luca
-        ```
-    *   Inside `luca-shell`, type `connect` (if not auto-connected), then `mcp.hello`.
+## 🚀 Core Architecture
 
-## Development Cycle (with Docker)
+* **Docker-first** deployment with `supervisord` managing microservices.
+* **Gateway**: routes MCP traffic, exposes LLM abstraction, enforces license tiers.
+* **MCP Servers**: plug-and-play Python services exposing files, email, web, and more.
+* **Shell**: `luca-shell`, a REPL for exploring and scripting against your MCP system.
 
-*   **Initial Build**: `docker compose build` (needed if `Dockerfile` or `requirements.txt` files change).
-*   **Code Changes**: Modify Python code in your local `llmbasedos_src/` directory.
-*   **Apply Changes**:
-    *   The `docker-compose.yml` is set up to mount `./llmbasedos_src` into `/opt/app/llmbasedos` in the container.
-    *   Restart services to pick up Python code changes:
-        ```bash
-        docker compose restart llmbasedos_instance 
-        # OR, for specific service restart:
-        # docker exec -it llmbasedos_instance supervisorctl restart mcp-gateway 
-        ```
-*   **Configuration Changes**: If you modify mounted config files (`supervisord.conf`, `licence_tiers.yaml`, etc.), a `docker-compose restart llmbasedos_instance` is also sufficient.
+---
 
-## ISO Build (Alternative/Legacy)
+## 🔁 From YAML to Scripts: A Strategic Pivot
 
-The `iso/` directory contains scripts for building a bootable Arch Linux ISO. This is a more complex deployment method, with Docker being the preferred route for most use cases. (Refer to older README versions or `iso/build.sh` for details if needed).
+Old approach: YAML workflows (rigid, hard to debug, logic hell).
 
-## Changelog (Recent Major Changes)
+New approach: Python scripts using `mcp_call()` for everything.
 
-*   **[2025-05-22] - Dockerization & Framework Refactor**
-    *   Primary deployment model shifted to Docker using a single image managed by Supervisord.
-    *   Introduced `MCPServer` framework in `llmbasedos_pkg/mcp_server_framework.py` for all backend servers (`fs`, `sync`, `mail`, `agent`), standardizing initialization, MCP method registration, socket handling, and capability publishing.
-    *   Project source code refactored into a main Python package (e.g., `llmbasedos_src/` on host, becoming `llmbasedos` package in Docker) for cleaner imports and module management.
-    *   Gateway (`gateway/main.py`) updated to use FastAPI's `lifespan` manager for startup/shutdown events.
-    *   Shell (`shell/luca.py`) refactored into `ShellApp` class for better state and connection management.
-    *   Corrected numerous import errors and runtime issues related to module discovery, Python path, and library API changes (e.g., `websockets`, `logging.config`).
-    *   Configuration for licence tiers (`gateway/licence_tiers.yaml`) and mail accounts (`mail_accounts.yaml`) externalized.
-    *   Hugging Face cache directory configured via `HF_HOME` for `fs_server` to resolve permission issues.
-    *   Added `jsonschema` dependency for MCP parameter validation within `MCPServer` framework.
-    *   `supervisord.conf` now correctly sets working directories and includes sections for `supervisorctl` interaction.
-    *   `Dockerfile` optimized with multi-stage builds and correct user/permission setup.
-    *   `docker-compose.yml` configured for easy launch, volume mounting (including live code mounting for development), and environment variable setup.
+Example:
 
-## Future Improvements & TODOs
+```python
+history = json.loads(mcp_call("mcp.fs.read", ["/outreach/contact_history.json"]).get("result", {}).get("content", "[]"))
 
-*   Robust OAuth2 support for mail server.
-*   Secure credential management (Vault, system keyring integration).
-*   Advanced shell features (path/argument tab completion, job control).
-*   More sophisticated workflow engine and step types for the agent server.
-*   Web UI for management.
-*   Comprehensive test suite.
-*   Security hardening.
-*   (Consider removing or clearly marking the ISO build الجزء as legacy/advanced if Docker is the main focus).
+prompt = f"Find 5 new agencies not in: {json.dumps(history)}"
+llm_response = mcp_call("mcp.llm.chat", [[{"role": "user", "content": prompt}], {"model": "gemini-1.5-pro"}])
+
+new_prospects = json.loads(llm_response.get("result", {}).get("choices", [{}])[0].get("message", {}).get("content", "[]"))
+
+if new_prospects:
+    updated = history + new_prospects
+    mcp_call("mcp.fs.write", ["/outreach/contact_history.json", json.dumps(updated, indent=2), "text"])
+```
+
+That’s it. You just built an LLM-powered outreach agent with **3 calls and zero boilerplate**.
+
+---
+
+## 🧱 Gateway + Servers Overview
+
+* `gateway/` (FastAPI):
+
+  * WebSocket + TCP endpoints.
+  * Auth & license tiers (`lic.key`, `licence_tiers.yaml`).
+  * LLM multiplexer (OpenAI, Gemini, local models).
+* `servers/fs/`: virtualized file system + FAISS semantic search.
+* `servers/mail/`: IMAP email parsing + draft handling.
+* `servers/sync/`: rclone for file sync ops.
+* `servers/agent/`: (legacy) YAML workflow engine (to be deprecated).
+
+---
+
+## 🔧 Deployment Guide (Docker)
+
+1. Install Docker + Docker Compose.
+2. Clone the repo, and organize `llmbasedos_src/`.
+3. Add your `.env`, `lic.key`, `mail_accounts.yaml`, and user files.
+4. Build:
+
+```bash
+docker compose build
+```
+
+5. Run:
+
+```bash
+docker compose up
+```
+
+6. Connect via `luca-shell` and start issuing `mcp.*` calls.
+
+---
+
+## 🧬 Roadmap: From Execution to Intention
+
+Next milestone: `orchestrator_server`
+
+It listens to natural language intentions ("Find 5 leads & draft intro emails"), auto-generates Python scripts to execute the plan, then optionally runs them.
+
+→ the OS becomes **a compiler for intention**.
+
+---
+
+## 🔐 Security Highlights
+
+* Virtual path jail (e.g., `/mnt/user_data`)
+* Licence-based tier enforcement
+* No keys baked in: `.env`-only secrets
+* Containers use readonly volumes for config
+
+---
+
+## 🧠 Who is llmbasedos For?
+
+* Builders tired of gluing APIs together manually
+* Agents researchers needing a clean substrate
+* Indie hackers who want GPT to *actually* do things
+
+---
+
+## 🌐 Technologies Used
+
+* Python 3.10+ / FastAPI / WebSockets / Supervisord
+* Docker / Compose / Volume Mounting
+* JSON-RPC 2.0 (MCP)
+* FAISS + SentenceTransformers
+* OpenAI / Gemini / LLaMA.cpp
+
+---
+
+## 🧭 Stay Updated
+
+Stars, forks, PRs and radical experiments welcome.
+
+> llmbasedos is what happens when you stop asking "how can I call GPT" and start asking "what if GPT could *call everything else*?"

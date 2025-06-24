@@ -2,6 +2,7 @@
 import logging
 import httpx 
 import json
+import re
 import uuid 
 from typing import Any, Dict, List, Optional, AsyncGenerator, Tuple, Union 
 from datetime import datetime, timezone
@@ -14,7 +15,6 @@ from llmbasedos.mcp_server_framework import create_mcp_response, create_mcp_erro
 logger = logging.getLogger("llmbasedos.gateway.upstream")
 
 def _get_model_config(requested_model_alias: Optional[str]) -> Tuple[str, str, str, Optional[str]]:
-    """Resolves a model alias to (provider, model_name, api_base_url, api_key)."""
     effective_alias = requested_model_alias
     if not effective_alias:
         for alias, config in AVAILABLE_LLM_MODELS.items():
@@ -47,28 +47,41 @@ def _get_model_config(requested_model_alias: Optional[str]) -> Tuple[str, str, s
     return provider, model_name, api_base.rstrip('/'), api_key
 
 def _convert_openai_to_gemini(messages: List[Dict[str, str]]) -> List[Dict[str, Any]]:
-    """Converts OpenAI message format to Gemini's 'contents' format."""
     contents = []
     for msg in messages:
         role = "model" if msg.get("role") == "assistant" else "user"
         contents.append({"role": role, "parts": [{"text": msg.get("content")}]})
     return contents
 
+# Dans llmbasedos_src/gateway/upstream.py
+
+# Dans llmbasedos_src/gateway/upstream.py
+
 def _convert_gemini_to_openai(gemini_response: Dict[str, Any], model_name: str) -> Dict[str, Any]:
-    """Converts a Gemini response to be compatible with OpenAI's structure."""
+    """
+    Converts a Gemini response to be compatible with OpenAI's structure.
+    This version also cleans the response from markdown code blocks.
+    """
     try:
-        content = gemini_response["candidates"][0]["content"]["parts"][0]["text"]
+        # Extraire le texte brut
+        content_str = gemini_response["candidates"][0]["content"]["parts"][0]["text"]
+        
+        # CORRECTION : Nettoyer la chaîne de caractères des balises markdown
+        cleaned_content = re.sub(r"```json\n?|```", "", content_str).strip()
+        
+        # On retourne la chaîne nettoyée
         return {
-            "id": f"gemini-{uuid.uuid4().hex}", "object": "chat.completion",
-            "created": int(datetime.now(timezone.utc).timestamp()), "model": model_name,
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            "id": f"gemini-{uuid.uuid4().hex}",
+            "object": "chat.completion",
+            "created": int(datetime.now(timezone.utc).timestamp()),
+            "model": model_name,
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": cleaned_content}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0} 
         }
     except (KeyError, IndexError):
         return {"error": gemini_response.get("error", {"message": "Unknown Gemini response format"})}
 
 async def _stream_openai_events(original_request_id: str, **kwargs) -> AsyncGenerator[Dict, Any]:
-    """Handles SSE streaming for OpenAI-compatible APIs."""
     async with httpx.AsyncClient(timeout=kwargs.pop('timeout')) as client:
         async with client.stream(**kwargs) as response:
             if response.status_code >= 400:
@@ -83,12 +96,10 @@ async def _stream_openai_events(original_request_id: str, **kwargs) -> AsyncGene
                     try:
                         chunk_data = json.loads(line_data)
                         yield create_mcp_response(original_request_id, result={"type": "llm_chunk", "content": chunk_data})
-                    except json.JSONDecodeError:
-                        continue
+                    except json.JSONDecodeError: continue
     yield create_mcp_response(original_request_id, result={"type": "llm_stream_end"})
 
 async def _stream_gemini_events(original_request_id: str, **kwargs) -> AsyncGenerator[Dict, Any]:
-    """Handles streaming for Google Gemini API by assembling JSON chunks."""
     timeout_config = kwargs.pop('timeout')
     async with httpx.AsyncClient(timeout=timeout_config) as client:
         async with client.stream(**kwargs) as response:
@@ -99,17 +110,15 @@ async def _stream_gemini_events(original_request_id: str, **kwargs) -> AsyncGene
             
             full_response_text = await response.aread()
             try:
-                # La réponse de Gemini est une liste d'objets JSON dans une seule chaîne de caractères
                 data_list = json.loads(full_response_text.decode('utf-8'))
                 for item in data_list:
                     text_content = item.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                     if text_content:
                         openai_like_chunk = {"choices": [{"delta": {"content": text_content}}]}
                         yield create_mcp_response(original_request_id, result={"type": "llm_chunk", "content": openai_like_chunk})
-                        await asyncio.sleep(0.02) # Petite pause pour simuler un vrai flux
+                        await asyncio.sleep(0.02)
             except Exception as e:
-                 logger.error(f"Failed to parse Gemini stream: {e}", exc_info=True)
-                 yield create_mcp_error(original_request_id, -32013, "Failed to parse Gemini stream response")
+                 yield create_mcp_error(original_request_id, -32013, "Failed to parse Gemini stream", data=str(e))
 
     yield create_mcp_response(original_request_id, result={"type": "llm_stream_end"})
 
@@ -153,6 +162,7 @@ async def call_llm_chat_completion(
             async with httpx.AsyncClient(timeout=timeout_config) as client:
                 response = await client.post(endpoint, headers=headers, json=payload)
                 response.raise_for_status()
+                logger.info(f"RAW GEMINI RESPONSE: {response.text}")
                 return _convert_gemini_to_openai(response.json(), model_name)
 
         else:
