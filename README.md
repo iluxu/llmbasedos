@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/iluxu-llmbasedos-badge.png)](https://mseep.ai/app/iluxu-llmbasedos)
+
 # llmbasedos
 
 `llmbasedos` is not just a framework or set of plugins. It is a **cognitive operating system** designed to transform your computer from a passive executor into an **autonomous partner** — capable of perceiving, reasoning, and acting across both local and cloud contexts.
