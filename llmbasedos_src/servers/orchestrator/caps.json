@@ -1,0 +1,41 @@
+{
+    "service_name": "orchestrator",
+    "description": "Translates user intentions into executable MCP scripts and manages their execution.",
+    "version": "0.1.0",
+    "capabilities": [
+        {
+            "method": "mcp.orchestrator.generate_script_from_intent",
+            "description": "Generates a Python script based on user intent and available MCP capabilities.",
+            "params_schema": {
+                "type": "array",
+                "prefixItems": [
+                    {
+                        "type": "string",
+                        "description": "The user's intention in natural language."
+                    },
+                    {
+                        "type": "object",
+                        "description": "Optional context or parameters for generation (e.g., preferred_llm_model).",
+                        "properties": {
+                            "preferred_llm_model": {"type": "string", "description": "Specific LLM model to use for script generation."}
+                        },
+                        "additionalProperties": false 
+                    }
+                ],
+                "minItems": 1,
+                "maxItems": 2,
+                "items": false 
+            },
+            "result_schema": {
+                "type": "object",
+                "properties": {
+                    "script_content": {"type": "string", "description": "The generated Python script content."},
+                    "estimated_cost": {"type": ["number", "null"], "description": "Estimated cost or tokens used for generation (optional)."},
+                    "warnings": {"type": "array", "items": {"type": "string"}, "description": "Any warnings during generation (optional)."}
+                },
+                "required": ["script_content"]
+            }
+        }
+        -
+    ]
+}

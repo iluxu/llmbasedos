@@ -6,7 +6,7 @@ from typing import Optional, List, Set
 
 # --- Configuration ---
 PROJECT_ROOT_PATH_STR = "."
-OUTPUT_FILENAME = "llmbasedos_project_ingestion.txt"
+OUTPUT_FILENAME = "cache_project_ingestion.txt"
 
 # Extensions de fichiers dont on veut lire le contenu.
 # Une liste plus ciblée pour un projet Python/Docker.

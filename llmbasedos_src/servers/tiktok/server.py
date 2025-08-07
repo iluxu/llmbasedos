@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 # Importer le framework MCP depuis le chemin du projet
-from llmbasedos.mcp_server_framework import MCPServer
+from llmbasedos_src.mcp_server_framework import MCPServer
 
 # --- Configuration du Serveur ---
 SERVER_NAME = "tiktok"

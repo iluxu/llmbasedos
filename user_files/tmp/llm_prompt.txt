@@ -1,0 +1,5 @@
+Résume le contenu suivant en une liste à puces de 3 points maximum :
+
+---
+$ref.step1_read_ideas.content
+---

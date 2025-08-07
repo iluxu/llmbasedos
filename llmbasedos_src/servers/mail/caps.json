@@ -54,23 +54,40 @@
                 }
             }
         },
-		{
-			"method": "mcp.mail.send_email",
-			"description": "Sends an email using a configured account.",
-			"params_schema": {
-				"type": "array",
-				"items": [{
-					"type": "object",
-					"properties": {
-						"account_id": {"type": "string"},
-						"to": {"type": "string"},
-						"subject": {"type": "string"},
-						"body": {"type": "string"}
-					},
-					"required": ["account_id", "to", "subject", "body"]
-				}]
-			}
-		},
+        {
+            "method": "mcp.mail.send_email",
+            "description": "Sends an email using a configured account.",
+            "params_schema": {
+                "type": "array",
+                "prefixItems": [  
+                    {
+                        "type": "object",
+                        "properties": {
+                            "account_id": {"type": "string", "description": "The ID of the sending account configured in mail_accounts.yaml."},
+                            "to": {"type": "string", "description": "Recipient email address(es), comma-separated if multiple."},
+                            "subject": {"type": "string", "description": "Subject of the email."},
+                            "body": {"type": "string", "description": "Body of the email (plain text)."}
+                          
+                        },
+                        "required": ["account_id", "to", "subject", "body"],
+                        "additionalProperties": false 
+                    }
+                ],
+                "minItems": 1, 
+                "maxItems": 1,
+                "items": false 
+            },
+            "result_schema": { 
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": ["success", "failed"]},
+                    "recipient": {"type": "string"},
+                    "message_id": {"type": ["string", "null"], "description": "Message-ID from SMTP server if available."},
+                    "error_message": {"type": ["string", "null"], "description": "Error message if status is 'failed'."}
+                },
+                "required": ["status", "recipient"]
+            }
+        },
         {
             "method": "mcp.mail.getMessage",
             "description": "Retrieves a specific message.",
@@ -112,11 +129,11 @@
             "result_schema": {
                 "type": "array", "items": {
                     "type": "object", "description": "Calendar component details.",
-                    "properties": { /* Same as before, detailed fields for VEVENT etc. */
+                    "properties": { 
                         "type": {"type": "string"}, "summary": {"type": ["string", "null"]},
                         "dtstart": {"type": ["string", "null"], "format": "date-time"},
                         "dtend": {"type": ["string", "null"], "format": "date-time"}
-                        /* Add more relevant iCal fields as needed */
+                       
                     }
                 }
             }

@@ -13,7 +13,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 from contextlib import asynccontextmanager
 
-from llmbasedos.mcp_server_framework import create_mcp_error, JSONRPC_PARSE_ERROR, JSONRPC_INVALID_REQUEST, JSONRPC_INTERNAL_ERROR
+from llmbasedos_src.mcp_server_framework import create_mcp_error, JSONRPC_PARSE_ERROR, JSONRPC_INVALID_REQUEST, JSONRPC_INTERNAL_ERROR
 from .config import (
     GATEWAY_UNIX_SOCKET_PATH, GATEWAY_HOST, GATEWAY_WEB_PORT,
     LOGGING_CONFIG,
@@ -348,7 +348,7 @@ async def websocket_mcp_endpoint(websocket: WebSocket):
 
 def run_gateway_service():
     uvicorn.run(
-        "llmbasedos.gateway.main:app",
+        "llmbasedos_src.gateway.main:app",
         host=GATEWAY_HOST, port=GATEWAY_WEB_PORT,
         log_config=None, 
     )

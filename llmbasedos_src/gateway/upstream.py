@@ -10,7 +10,7 @@ import asyncio
 
 from .config import AVAILABLE_LLM_MODELS, DEFAULT_LLM_PROVIDER, OPENAI_API_KEY, GEMINI_API_KEY
 from .auth import LicenceDetails 
-from llmbasedos.mcp_server_framework import create_mcp_response, create_mcp_error
+from llmbasedos_src.mcp_server_framework import create_mcp_response, create_mcp_error
 
 logger = logging.getLogger("llmbasedos.gateway.upstream")
 

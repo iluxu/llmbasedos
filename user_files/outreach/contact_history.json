@@ -1,62 +1,506 @@
 [
   {
-    "name": "Robert Half",
-    "specialization": "Finance & Accounting, Financial Services, IT, Administrative & HR",
-    "website": "https://www.roberthalf.be",
-    "address": "Avenue Louise 149, 1050 Brussels, Belgium"
+    "full_name": "Irakli Tsintsadze",
+    "role": "Country Manager, Georgia",
+    "agency": "Pedersen & Partners",
+    "email": "irakli.tsintsadze@pedersenandpartners.com",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 08:57:23"
   },
   {
-    "name": "Michael Page",
-    "specialization": "Executive search, Finance, Sales & Marketing, IT, Engineering",
-    "website": "https://www.michaelpage.be",
-    "address": "Avenue Louise 326, 1050 Brussels, Belgium"
+    "full_name": "Nino Gelashvili",
+    "role": "Founder & CEO",
+    "agency": "People Management Group",
+    "email": "n.gelashvili@pmg.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 08:57:25"
   },
   {
-    "name": "Hays",
-    "specialization": "IT, Construction & Property, Life Sciences, Finance, Office Support",
-    "website": "https://www.hays.be",
-    "address": "Rue Belliard 4-6, 1040 Brussels, Belgium"
+    "full_name": "Giorgi Beridze",
+    "role": "Managing Partner",
+    "agency": "Unlimit Recruitment",
+    "email": "g.beridze@unlimit.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 08:57:27"
   },
   {
-    "name": "Randstad",
-    "specialization": "Wide range of sectors including temporary and permanent staffing, Inhouse services",
-    "website": "https://www.randstad.be",
-    "address": "Access Building, Rue Charles Lemaire 1, 1160 Auderghem, Belgium"
+    "full_name": "Tamar Lomsadze",
+    "role": "Director",
+    "agency": "HR Standard",
+    "email": "tamar.lomsadze@hrstandard.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 08:57:29"
   },
   {
-    "name": "Robert Walters",
-    "specialization": "Legal, Banking & Financial Services, IT, Sales & Marketing",
-    "website": "https://www.robertwalters.be",
-    "address": "Avenue Louise 2, 1050 Brussels, Belgium"
+    "full_name": "David Kapanadze",
+    "role": "Managing Partner",
+    "agency": "ExMondo",
+    "email": "david.kapanadze@exmondo.com",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 08:57:32"
   },
   {
-    "name": "Experis",
-    "specialization": "IT, Engineering, Finance, Life Sciences",
-    "website": "https://www.experis.be",
-    "address": "Avenue des Communaut\u00e9s 110, 1200 Woluwe-Saint-Lambert, Belgium"
+    "full_name": "Lika Gremelashvili",
+    "role": "Managing Partner",
+    "agency": "Insource",
+    "email": "l.gremelashvili@insource.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:02:26"
   },
   {
-    "name": "Adecco",
-    "specialization": "Office, Industrial, Logistics, Sales, Hospitality, Medical",
-    "website": "https://www.adecco.be",
-    "address": "Boulevard Anspach 1, 1000 Brussels, Belgium"
+    "full_name": "Medea Tabatadze",
+    "role": "Founder & Director",
+    "agency": "Just-HIRE",
+    "email": "m.tabatadze@just-hire.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:02:28"
   },
   {
-    "name": "Walters People",
-    "specialization": "Junior to medior level temporary and permanent roles in Finance & Business Support",
-    "website": "https://www.walterspeople.be",
-    "address": "Avenue Louise 2, 1050 Brussels, Belgium"
+    "full_name": "Lika Ratiani",
+    "role": "People and Organisation Leader",
+    "agency": "PwC Georgia",
+    "email": "lika.ratiani@pwc.com",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:02:31"
   },
   {
-    "name": "Progressive Recruitment",
-    "specialization": "IT, Engineering, Life Sciences, Supply Chain",
-    "website": "https://www.progressiverecruitment.com",
-    "address": "Avenue Louise 130A, 1050 Brussels, Belgium"
+    "full_name": "Nino Niauri",
+    "role": "Director",
+    "agency": "HR Agency",
+    "email": "n.niauri@hragency.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:02:33"
   },
   {
-    "name": "Axis Career",
-    "specialization": "Multilingual administrative staff (Personal Assistants, Management Assistants, Office Managers)",
-    "website": "https://www.axis.jobs",
-    "address": "Rue du Congr\u00e8s 37, 1000 Brussels, Belgium"
+    "full_name": "Zurab Lalazashvili",
+    "role": "Managing Partner",
+    "agency": "BDO Georgia",
+    "email": "zurab.lalazashvili@bdo.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:02:35"
+  },
+  {
+    "fullName": "Irakli Chikovani",
+    "role": "Managing Partner",
+    "agency": "Stanton Chase Tbilisi",
+    "email": "i.chikovani@stantonchase.com",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:22:40"
+  },
+  {
+    "fullName": "Lika Kardava",
+    "role": "Managing Partner",
+    "agency": "Insource",
+    "email": "l.kardava@insource.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:22:42"
+  },
+  {
+    "fullName": "Nino Kapanadze",
+    "role": "Partner",
+    "agency": "Ward Howell",
+    "email": "nino.kapanadze@wardhowell.com",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:22:44"
+  },
+  {
+    "fullName": "Tamar Gvalia",
+    "role": "Head of HR & Admin",
+    "agency": "BDO Georgia",
+    "email": "tamargvalia@bdo.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:22:46"
+  },
+  {
+    "fullName": "Ana Gudadze",
+    "role": "Managing Director",
+    "agency": "Just-HIRE",
+    "email": "ana.gudadze@just-hire.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:22:48"
+  },
+  {
+    "full_name": "Tamar Gvalia",
+    "role": "Managing Partner",
+    "agency": "Insource",
+    "email": "tamar.gvalia@insource.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:24:19"
+  },
+  {
+    "full_name": "Sopho Chkoidze",
+    "role": "Managing Partner",
+    "agency": "Just-Talent",
+    "email": "sopho.chkoidze@just-talent.co",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:24:21"
+  },
+  {
+    "full_name": "Nino Kapanadze",
+    "role": "Head of People and Organisation",
+    "agency": "BDO Georgia",
+    "email": "nino.kapanadze@bdo.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:24:25"
+  },
+  {
+    "full_name": "Helen Tadumadze",
+    "role": "Country Manager",
+    "agency": "Action Global Communications",
+    "email": "helen.t@actionprgroup.com",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:24:27"
+  },
+  {
+    "full_name": "Elene Kobaidze",
+    "role": "Head of HR Consulting and Recruitment",
+    "agency": "Smart Capital Group",
+    "email": "elene.kobaidze@scg.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:24:30"
+  },
+  {
+    "full_name": "Lana Kupatadze",
+    "role": "Managing Partner",
+    "agency": "Insource",
+    "email": "l.kupatadze@insource.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:25:25"
+  },
+  {
+    "full_name": "Ani Kvaratskhelia",
+    "role": "Founder & Managing Partner",
+    "agency": "Just-In",
+    "email": "a.kvaratskhelia@justin.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:25:27"
+  },
+  {
+    "full_name": "Gvantsa Gudadze",
+    "role": "Head of People & Organisation",
+    "agency": "BDO Georgia",
+    "email": "ggudadze@bdo.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:25:29"
+  },
+  {
+    "full_name": "Giorgi Kankia",
+    "role": "Managing Partner",
+    "agency": "Pulsar",
+    "email": "g.kankia@pulsar.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:25:31"
+  },
+  {
+    "full_name": "Nino Kapanadze",
+    "role": "Director",
+    "agency": "Smart Staff",
+    "email": "n.kapanadze@smartstaff.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:25:33"
+  },
+  {
+    "fullName": "Lela Machaidze",
+    "role": "Managing Partner",
+    "agency": "Insource",
+    "email": "l.machaidze@insource.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:27:23"
+  },
+  {
+    "fullName": "Sopo Chkoidze",
+    "role": "Founder & Managing Partner",
+    "agency": "Just In Time (JIT)",
+    "email": "s.chkoidze@jit.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:27:25"
+  },
+  {
+    "fullName": "Teona Maisuradze",
+    "role": "Head of HR Advisory",
+    "agency": "BDO Georgia",
+    "email": "teona.maisuradze@bdo.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:27:27"
+  },
+  {
+    "fullName": "Eka Gugushvili",
+    "role": "Founder",
+    "agency": "WeFind",
+    "email": "e.gugushvili@wefind.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:27:29"
+  },
+  {
+    "fullName": "Nana Mikashavidze",
+    "role": "Managing Partner",
+    "agency": "Smart Capital Group (SCG)",
+    "email": "n.mikashavidze@scg.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:27:31"
+  },
+  {
+    "full_name": "Anna Chikovani",
+    "role": "Managing Partner",
+    "agency": "Insource",
+    "email": "anna.chikovani@insource.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:29:46"
+  },
+  {
+    "full_name": "George Simongulashvili",
+    "role": "Managing Partner",
+    "agency": "TBSC Consulting",
+    "email": "gsimongulashvili@tbsc.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:29:48"
+  },
+  {
+    "full_name": "Natia Ghlonti",
+    "role": "Founder and Director",
+    "agency": "Just-in-Time (JIT)",
+    "email": "n.ghlonti@jit.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:29:50"
+  },
+  {
+    "full_name": "Salome Kukava",
+    "role": "Managing Partner",
+    "agency": "OnePoint",
+    "email": "salome.kukava@onepoint.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:29:53"
+  },
+  {
+    "full_name": "Zurab Lalazashvili",
+    "role": "Managing Partner",
+    "agency": "BDO Georgia",
+    "email": "zlazashvili@bdo.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:32:11"
+  },
+  {
+    "full_name": "Lika Gvelesiani",
+    "role": "Founder & Managing Partner",
+    "agency": "Insource",
+    "email": "l.gvelesiani@insource.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:32:13"
+  },
+  {
+    "full_name": "Medea Tabatadze",
+    "role": "Founder & CEO",
+    "agency": "Just-HIRE",
+    "email": "medea@just-hire.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:32:15"
+  },
+  {
+    "full_name": "Elena Otarashvili",
+    "role": "Founder",
+    "agency": "SavvY",
+    "email": "e.otarashvili@savvy.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:32:18"
+  },
+  {
+    "full_name": "Irakli Svanidze",
+    "role": "Head of HR & Admin Department",
+    "agency": "Anagi Construction Company",
+    "email": "i.svanidze@anagi.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:32:20"
+  },
+  {
+    "fullName": "Nino Gogotidze",
+    "role": "Head of HR and Outsourcing",
+    "agency": "BDO Georgia",
+    "email": "nino.gogotidze@bdo.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:36:49"
+  },
+  {
+    "fullName": "Nino Niauri",
+    "role": "Managing Partner",
+    "agency": "Just-in-Case",
+    "email": "n.niauri@justincase.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:36:51"
+  },
+  {
+    "fullName": "Dimitri Shengelia",
+    "role": "Managing Partner",
+    "agency": "WeFind",
+    "email": "d.shengelia@wefind.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:36:53"
+  },
+  {
+    "name": "Zurab Lalazashvili",
+    "role": "Managing Partner",
+    "agency": "BDO Georgia",
+    "email": "zlalazashvili@bdo.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:57:52"
+  },
+  {
+    "name": "Lasha Janelidze",
+    "role": "Country Managing Partner",
+    "agency": "EY Georgia",
+    "email": "lasha.janelidze@ey.com",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:57:55"
+  },
+  {
+    "name": "Lasha Gzirishvili",
+    "role": "Country Managing Partner",
+    "agency": "PwC Georgia",
+    "email": "lasha.gzirishvili@pwc.com",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:58:00"
+  },
+  {
+    "name": "Sopho Chachanidze",
+    "role": "Managing Partner",
+    "agency": "Insource",
+    "email": "s.chachanidze@insource.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:58:02"
+  },
+  {
+    "name": "Vakhtang Tsabadze",
+    "role": "Managing Partner",
+    "agency": "Grant Thornton Georgia",
+    "email": "vakhtang.tsabadze@ge.gt.com",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:58:04"
+  },
+  {
+    "name": "Lela Skhirtladze",
+    "role": "Managing Partner",
+    "agency": "SavvY",
+    "email": "l.skhirtladze@savvy.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:58:06"
+  },
+  {
+    "name": "Ani Daushvili",
+    "role": "Co-Founder & CEO",
+    "agency": "Just-in-case",
+    "email": "ani.daushvili@jic.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:58:08"
+  },
+  {
+    "name": "John Robinson",
+    "role": "Managing Partner, Caspian Region",
+    "agency": "Deloitte Georgia",
+    "email": "jrobinson@deloitte.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:58:10"
+  },
+  {
+    "name": "George Simongulashvili",
+    "role": "Director",
+    "agency": "TBSC Consulting",
+    "email": "g.simongulashvili@tbsc.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:58:12"
+  },
+  {
+    "name": "Lika Dolidze",
+    "role": "Country Manager",
+    "agency": "Action Global Communications",
+    "email": "lika.d@actionprgroup.com",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:58:15"
+  },
+  {
+    "name": "Ekaterine Zhvania",
+    "role": "Managing Partner",
+    "agency": "One Point",
+    "email": "e.zhvania@onepoint.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:58:17"
+  },
+  {
+    "name": "Tako Kvachantiradze",
+    "role": "Founder",
+    "agency": "Pro-CV",
+    "email": "tako@pro-cv.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:58:19"
+  },
+  {
+    "name": "Nino Niauri",
+    "role": "Founder & Managing Partner",
+    "agency": "People Management and Development (PMD)",
+    "email": "n.niauri@pmd.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:58:21"
+  },
+  {
+    "name": "Mary Chachanidze",
+    "role": "CEO & Founder",
+    "agency": "We Vibe",
+    "email": "mary@wevibe.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:58:23"
+  },
+  {
+    "name": "Khatuna Shonia",
+    "role": "Managing Partner",
+    "agency": "HR Partners",
+    "email": "k.shonia@hrpartners.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 09:58:26"
+  },
+  {
+    "name": "Nino Kacheishvili",
+    "role": "General Manager",
+    "agency": "Just In Time",
+    "email": "n.kacheishvili@jit.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 10:01:12"
+  },
+  {
+    "name": "Elene Margvelashvili",
+    "role": "Founder & Director",
+    "agency": "HRLINO",
+    "email": "elene.margvelashvili@hrlino.com",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 10:01:14"
+  },
+  {
+    "name": "Tamar Gvalia",
+    "role": "Founder",
+    "agency": "Smart Staff",
+    "email": "t.gvalia@smartstaff.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 10:01:16"
+  },
+  {
+    "name": "Tea Kukulava",
+    "role": "Founder & CEO",
+    "agency": "HR-Area",
+    "email": "t.kukulava@hr-area.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 10:01:18"
+  },
+  {
+    "name": "Tamar Jakeli",
+    "role": "Managing Partner",
+    "agency": "We-Recruit",
+    "email": "t.jakeli@we-recruit.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 10:01:20"
+  },
+  {
+    "name": "Eka Vardiashvili",
+    "role": "Managing Partner",
+    "agency": "Action Group \u2022 HR",
+    "email": "e.vardiashvili@actiongroup.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 10:01:22"
+  },
+  {
+    "name": "Mariam Khurtsidze",
+    "role": "Recruitment Director",
+    "agency": "Georgian Staff",
+    "email": "m.khurtsidze@georgianstaff.com",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 10:01:24"
+  },
+  {
+    "name": "Irakli Gvenetadze",
+    "role": "Founder & CEO",
+    "agency": "People & Computers",
+    "email": "i.gvenetadze@pnc.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 10:01:27"
+  },
+  {
+    "name": "Tinatin Gholadze",
+    "role": "Head of HR Outsourcing & Recruitment",
+    "agency": "TASC",
+    "email": "t.gholadze@tasc.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 10:01:29"
+  },
+  {
+    "name": "Mariam Bitsadze",
+    "role": "Head of HR Department",
+    "agency": "UHY LLC",
+    "email": "m.bitsadze@uhy.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 10:01:31"
+  },
+  {
+    "name": "Dmitry Kalinovskiy",
+    "role": "Co-Founder",
+    "agency": "Brights",
+    "email": "d.kalinovskiy@brights.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 10:01:33"
+  },
+  {
+    "name": "Tinatin Stambolishvili",
+    "role": "Managing Partner",
+    "agency": "Criterium",
+    "email": "t.stambolishvili@criterium.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 10:01:35"
+  },
+  {
+    "name": "Ana Bokuchava",
+    "role": "Head of People and Culture",
+    "agency": "Grant Thornton Georgia",
+    "email": "ana.bokuchava@ge.gt.com",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 10:01:38"
+  },
+  {
+    "name": "Ia Gagnidze",
+    "role": "Founder",
+    "agency": "HR Partners",
+    "email": "i.gagnidze@hrpartners.ge",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 10:01:40"
+  },
+  {
+    "name": "Nino Berishvili",
+    "role": "HR Manager",
+    "agency": "Business & Finance Consulting (BFC)",
+    "email": "n.berishvili@bfconsulting.com",
+    "status_llmbasedos": "Email proposal sent on 2025-06-25 10:01:42"
   }
 ]

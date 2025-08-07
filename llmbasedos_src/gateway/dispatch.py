@@ -4,17 +4,16 @@ import json
 import logging
 from typing import Any, Dict, Optional, Union, List, AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor
-import httpx
 import socket
 
-from llmbasedos.mcp_server_framework import (
+from llmbasedos_src.mcp_server_framework import (
     create_mcp_response, create_mcp_error,
     JSONRPC_INVALID_REQUEST, JSONRPC_METHOD_NOT_FOUND,
     JSONRPC_INVALID_PARAMS, JSONRPC_INTERNAL_ERROR
 )
 from . import registry
 from . import upstream
-from .auth import LicenceDetails, get_licence_info_for_mcp_call, record_llm_token_usage
+from .auth import LicenceDetails, get_licence_info_for_mcp_call
 from .config import GATEWAY_EXECUTOR_MAX_WORKERS
 
 logger = logging.getLogger("llmbasedos.gateway.dispatch")
@@ -52,8 +51,13 @@ def _send_request_to_backend_server_blocking(socket_path: str, request_payload: 
 
 async def _send_request_to_external_tcp_server(address: str, request_payload: Dict[str, Any]) -> Dict[str, Any]:
     request_id = request_payload.get("id")
-    host, port_str = address.split(":", 1)
-    port = int(port_str)
+    try:
+        host, port_str = address.split(":", 1)
+        port = int(port_str)
+    except (ValueError, IndexError):
+        logger.error(f"Invalid external TCP address format: {address}")
+        return create_mcp_error(request_id, JSONRPC_INTERNAL_ERROR, "Invalid external server address configuration.")
+        
     writer = None
     try:
         reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=10.0)
@@ -77,27 +81,47 @@ async def handle_mcp_request(
     client_websocket_for_context: Any 
 ) -> Union[Dict[str, Any], AsyncGenerator[Dict[str, Any], None]]:
     
-    request_id = request.get("id") # Garder l'ID de la requête MCP originale
+    request_id = request.get("id")
     method_name = request.get("method", "").strip()
     params = request.get("params", []) 
-    
-    # ... (logique de déballage de la requête UI, mcp.hello, mcp.listCapabilities, mcp.licence.check) ...
 
-    # Gestion spécifique de mcp.llm.chat
+    if not method_name:
+        return create_mcp_error(request_id, JSONRPC_INVALID_REQUEST, "Method name must be non-empty.")
+
+    # --- Gestion des Méthodes Internes au Gateway ---
+    if method_name == "mcp.hello":
+        return create_mcp_response(request_id, result=registry.get_all_registered_method_names())
+    
+    if method_name == "mcp.listCapabilities":
+        return create_mcp_response(request_id, result=registry.get_detailed_capabilities_list())
+        
+    if method_name == "mcp.licence.check":
+        return create_mcp_response(request_id, result=get_licence_info_for_mcp_call(client_websocket_for_context))
+
+    # --- Gestion Spécifique des appels LLM ---
     if method_name == "mcp.llm.chat":
         try:
-            if not isinstance(params, list):
-                 return create_mcp_error(request_id, JSONRPC_INVALID_PARAMS, "Params for mcp.llm.chat must be an array.")
+            # Le paramètre doit être un objet unique, qui peut être dans une liste de taille 1
+            # car le planificateur génère `params: [ { ... } ]`
+            if not (isinstance(params, list) and len(params) == 1 and isinstance(params[0], dict)):
+                 return create_mcp_error(request_id, JSONRPC_INVALID_PARAMS, "Params for mcp.llm.chat must be an array containing a single object.")
 
-            messages = params[0]
-            options = params[1] if len(params) > 1 and isinstance(params[1], dict) else {}
-            
+            chat_params = params[0] # On prend le premier (et seul) élément, qui est l'objet
+
+            messages = chat_params.get("messages")
+            options = chat_params.get("options", {})
+
+            if not isinstance(messages, list):
+                return create_mcp_error(request_id, JSONRPC_INVALID_PARAMS, "The 'messages' field in chat parameters must be an array.")
+            if not isinstance(options, dict):
+                 return create_mcp_error(request_id, JSONRPC_INVALID_PARAMS, "The 'options' field in chat parameters must be an object.")
+
+            # Le reste du code reste identique
             stream_flag = options.pop("stream", False)
             model_alias = options.pop("model", None)
 
-            # Appel à upstream.call_llm_chat_completion
             llm_api_response_or_generator = await upstream.call_llm_chat_completion(
-                request_id=request_id, # Passer l'ID de la requête MCP pour la gestion des erreurs dans upstream
+                request_id=request_id,
                 messages=messages, 
                 licence=licence_details, 
                 requested_model_alias=model_alias, 
@@ -105,25 +129,15 @@ async def handle_mcp_request(
                 **options
             )
 
-            # --- MODIFICATION IMPORTANTE ICI ---
+            # ... (la logique de retour reste la même) ...
             if isinstance(llm_api_response_or_generator, AsyncGenerator):
-                # Si c'est un stream, upstream.call_llm_chat_completion doit déjà
-                # générer des réponses JSON-RPC valides (avec "result" ou "error").
-                # Donc, on le retourne directement.
-                logger.debug(f"Dispatching LLM stream for request ID {request_id}")
                 return llm_api_response_or_generator
             elif isinstance(llm_api_response_or_generator, dict):
-                # Si c'est une réponse unique (non-stream)
-                if "error" in llm_api_response_or_generator: # Si upstream a déjà formaté une erreur JSON-RPC
-                    logger.warning(f"LLM call for ID {request_id} resulted in upstream error: {llm_api_response_or_generator['error']}")
-                    return llm_api_response_or_generator # C'est déjà une erreur MCP valide
+                if "error" in llm_api_response_or_generator:
+                    return llm_api_response_or_generator
                 else:
-                    # Encapsuler la réponse de l'API LLM dans un "result" JSON-RPC
-                    logger.debug(f"LLM call for ID {request_id} successful, wrapping result.")
                     return create_mcp_response(request_id, result=llm_api_response_or_generator)
             else:
-                # Cas inattendu si upstream ne retourne ni dict ni AsyncGenerator
-                logger.error(f"Unexpected response type from upstream.call_llm_chat_completion for ID {request_id}: {type(llm_api_response_or_generator)}")
                 return create_mcp_error(request_id, JSONRPC_INTERNAL_ERROR, "Internal error: Unexpected response type from LLM upstream handler.")
 
         except Exception as e:
@@ -131,14 +145,16 @@ async def handle_mcp_request(
             return create_mcp_error(request_id, JSONRPC_INTERNAL_ERROR, f"Failed to process mcp.llm.chat request: {type(e).__name__}")
 
 
-    # Routage vers les services backend
+    # --- Routage vers les Services Backend (fs, mail, etc.) ---
     routing_info = registry.get_capability_routing_info(method_name)
     if routing_info:
         if routing_info.get("socket_path") == "external":
-            address = routing_info["config"]["address"]
+            address = routing_info["config"].get("address")
+            if not address:
+                return create_mcp_error(request_id, JSONRPC_INTERNAL_ERROR, f"External service for '{method_name}' has no address configured.")
             logger.info(f"Dispatching '{method_name}' to external TCP server at {address}")
             return await _send_request_to_external_tcp_server(address, request)
-        else: # Service local
+        else: # Service local via socket UNIX
             socket_path = routing_info["socket_path"]
             logger.info(f"Dispatching '{method_name}' to local service at {socket_path}")
             loop = asyncio.get_running_loop()
@@ -148,7 +164,7 @@ async def handle_mcp_request(
                 socket_path, request
             )
     
-    # Si aucune route n'est trouvée
+    # --- Si aucune route n'est trouvée ---
     logger.warning(f"Method '{method_name}' (ID {request_id}) NOT FOUND in any registry.")
     return create_mcp_error(request_id, JSONRPC_METHOD_NOT_FOUND, f"Method '{method_name}' not found.")
 

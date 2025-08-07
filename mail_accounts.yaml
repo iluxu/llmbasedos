@@ -1,9 +1,15 @@
-# ./mail_accounts.yaml
-# Vide pour l'instant, ou exemple :
-# my_gmail_account:
-#   email: "votre_email@gmail.com"
-#   host: "imap.gmail.com"
-#   user: "votre_email@gmail.com"
-#   password: "VOTRE_MOT_DE_PASSE_D_APPLICATION_GMAIL" # Utilisez un mot de passe d'application !
-#   port: 993
-#   ssl: true
+accounts:
+  perso_gmail_sender: # Donnez-lui un ID distinct si vous l'utilisez aussi pour lire
+    email: "leprofesseurtrading@gmail.com"
+    # Détails IMAP (peuvent être nécessaires si le serveur mail les attend, même pour l'envoi)
+    host: "imap.gmail.com"
+    port: 993
+    user: "leprofesseurtrading@gmail.com"
+    password: "fjyn akya hlij vszt"
+    ssl: true
+    # Détails SMTP (cruciaux pour l'envoi)
+    smtp_host: "smtp.gmail.com"
+    smtp_port: 587 # Port pour STARTTLS
+    smtp_user: "leprofesseurtrading@gmail.com" # Souvent le même que l'user IMAP
+    smtp_password: "fjyn akya hlij vszt" # Le même mot de passe d'application
+    smtp_use_tls: true # Indique d'utiliser STARTTLS

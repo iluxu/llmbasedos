@@ -7,7 +7,7 @@ import time
 import os
 import traceback
 
-# --- Classe MCPError et fonction mcp_call (ton code original, inchangé) ---
+# --- Classe MCPError et fonction mcp_call (version précédente, supposée correcte) ---
 class MCPError(Exception):
     def __init__(self, message, code=None, data=None):
         super().__init__(message)
@@ -23,7 +23,7 @@ def mcp_call(method: str, params: list = []):
         service_name = "gateway" if method.startswith("mcp.llm.") else method.split('.')[1]
         socket_path = f"/run/mcp/{service_name}.sock"
         
-        max_wait = 15
+        max_wait = 15 # Augmenté un peu pour le premier contact avec le service
         waited = 0
         while not os.path.exists(socket_path):
             if waited >= max_wait:
@@ -49,6 +49,8 @@ def mcp_call(method: str, params: list = []):
             raw_response_str = response_bytes.decode('utf-8')
             raw_response = json.loads(raw_response_str)
 
+            # S'assurer que l'ID de réponse correspond à l'ID de la requête
+            # Certains serveurs pourraient mal gérer cela, mais c'est une bonne pratique
             if raw_response.get("id") != payload_id:
                 print(f"WARNING: MCP Response ID mismatch. Sent: {payload_id}, Received: {raw_response.get('id')}")
 
@@ -58,6 +60,13 @@ def mcp_call(method: str, params: list = []):
             if "result" in raw_response:
                 return raw_response["result"] 
             
+            # Si la réponse n'est ni une erreur JSON-RPC valide, ni un résultat JSON-RPC valide,
+            # MAIS que c'est pour mcp.llm.chat, cela signifie que le gateway a retourné la réponse LLM brute
+            # Ce cas a été corrigé dans le gateway pour qu'il encapsule toujours dans "result".
+            # Donc, cette branche ne devrait plus être nécessaire si le gateway est à jour.
+            # Cependant, par prudence, si la méthode était mcp.llm.chat et que la réponse a des "choices",
+            # on pourrait la traiter comme un succès. Mais il est préférable de corriger le gateway.
+            # Pour l'instant, on s'attend à ce que le gateway encapsule TOUJOURS.
             raise MCPError(f"Invalid MCP response (missing 'result' or 'error' key): {raw_response_str}", -32603)
 
     except FileNotFoundError as e:
@@ -76,9 +85,44 @@ def mcp_call(method: str, params: list = []):
         traceback.print_exc() 
         raise MCPError(f"Unexpected error in mcp_call: {type(e).__name__} - {e}", -32603, {"method": method}) from e
 
+# --- Configuration de la campagne d'e-mailing ---
+EMAIL_SENDING_ACCOUNT_ID = "perso_gmail_sender" # Doit correspondre à un ID dans mail_accounts.yaml
+# Template à utiliser dans votre script Python
+
+# --- Variables à définir pour chaque contact ---
+# contact_prenom = "Jean" # Prénom extrait du 'nom_complet'
+# nom_entreprise = "Agence Digitale Bordeaux"
+
+# --- Template de l'email ---
+# --- Variables ---
+# contact_prenom = "Marie"
+
+EMAIL_SUBJECT_PROPOSAL = "Canicule & Factures : Audit gratuit de votre système CVC à Bordeaux"
+
+EMAIL_BODY_PROPOSAL_TEMPLATE ="""
+Bonjour,
+
+Vous êtes en première ligne face à deux défis majeurs chaque été à Bordeaux : le confort de vos occupants et la flambée des coûts énergétiques.
+
+Un système de climatisation vieillissant ou mal dimensionné peut représenter jusqu'à 40% de la facture électrique d'un bâtiment et être la source n°1 de plaintes durant les vagues de chaleur.
+
+Je m'appelle Luca Mucciaccio et ma société, ClimBordeaux Pro, est spécialisée dans l'optimisation et l'installation de solutions CVC modernes pour les professionnels de l'immobilier. Nous aidons nos clients à :
+- **Réduire drastiquement leurs charges** grâce à des équipements nouvelle génération (jusqu'à 50% d'économies).
+- **Augmenter la valeur de leur patrimoine** et l'attractivité de leurs locaux (un critère clé pour les locataires et acheteurs).
+- **Garantir la tranquillité** en éliminant les pannes et les plaintes liées à la température.
+
+Je ne cherche pas à vous vendre un système aujourd'hui. Je vous propose un **audit de performance gratuit et sans engagement** de votre installation actuelle. En 30 minutes, nous pouvons identifier les points de défaillance potentiels et vous fournir une estimation claire des économies réalisables.
+
+Seriez-vous disponible pour un bref échange la semaine prochaine pour planifier cet audit ?
+
+Cordialement,
+
+Luca Mucciaccio
+Spécialiste CVC, ClimBordeaux Pro
+"""
 
 def run_prospecting_campaign():
-    print("--- Lancement de la génération de leads ---")
+    print("--- Lancement de la campagne de prospection ---")
     try:
         history_file = "/outreach/luci.json" 
         history_list = []
@@ -105,8 +149,11 @@ def run_prospecting_campaign():
 
         print(f"1. Historique lu: {len(history_list)} contacts existants.")
 
+        # Filtrer l'historique pour le prompt (ne passer que les noms, ou un sous-ensemble pour concision)
+        # Et s'assurer que ce sont bien des dictionnaires avec une clé 'name'
         history_names_for_prompt = [item.get("name") for item in history_list if isinstance(item, dict) and item.get("name")]
         
+            # MODIFICATION DU PROMPT pour demander les e-mails
         user_prompt = (
             "Génère un tableau JSON de 50 contacts qui sont des clients potentiels à haute valeur pour une boutique de bijoux et de vêtements haut de gamme à Bruxelles.\n\n"
             "Cible prioritaire (B2C & Professionnels locaux) :\n"
@@ -133,11 +180,16 @@ def run_prospecting_campaign():
             f"{user_prompt}"
         )
         
-        llm_params = [{
-            "messages": [{"role": "user", "content": final_prompt}],
-            "options": {"model": "gemini-1.5-pro", "temperature": 0.5}
-        }]
-
+        # NOUVELLE VERSION (Correcte)
+        llm_params = [  # Le tableau `params` commence ici
+            {           # Il ne contient qu'UN SEUL objet
+                "messages": [{"role": "user", "content": final_prompt}],
+                "options": {
+                    "model": "gemini-1.5-pro",
+                    "temperature": 0.5
+                }
+            }
+        ]
         print("2. Appel du LLM pour trouver de nouveaux prospects...")
         llm_api_result = mcp_call("mcp.llm.chat", llm_params)
 
@@ -150,6 +202,7 @@ def run_prospecting_campaign():
         
         cleaned_content_str = re.sub(r"```json\s*|\s*```", "", content_str).strip()
         
+        # Correction ici : extraction à partir du premier [
         start_idx = cleaned_content_str.find("[")
         if start_idx == -1:
             raise ValueError(f"Unable to find '[' to extract JSON list from content: '{cleaned_content_str}'")
@@ -165,10 +218,11 @@ def run_prospecting_campaign():
             raise ValueError(f"LLM content did not parse to a JSON list. Parsed type: {type(new_prospects_from_llm)}. Content was: '{json_str_from_bracket}'")
 
         print(f"3. LLM a retourné {len(new_prospects_from_llm)} prospects potentiels.")
-        
-        # --- FILTRAGE ET PRÉPARATION POUR LA SAUVEGARDE ---
-        
-        actually_new_prospects_for_history = [] 
+        # print(json.dumps(new_prospects_from_llm, indent=2))
+
+        # --- Logique d'envoi d'e-mails ---
+        emails_sent_this_run = 0
+        actually_new_prospects_for_history = [] # Ceux qui sont vraiment nouveaux ET valides
 
         existing_emails_in_history = set()
         for item in history_list:
@@ -180,42 +234,62 @@ def run_prospecting_campaign():
                 print(f"AVERTISSEMENT: Prospect data from LLM is not a dict: {prospect_data}")
                 continue
 
-            prospect_name = prospect_data.get("nom_complet")
-            prospect_email = prospect_data.get("email")
+            agency_name = prospect_data.get("nom_complet") or prospect_data.get("agency")
+            agency_email = prospect_data.get("email")
 
-            if not prospect_name or not prospect_email:
-                print(f"INFO: Prospect '{prospect_name or 'Unknown'}' skippé (nom ou email manquant). Data: {prospect_data}")
+            if not agency_name or not agency_email:
+                print(f"INFO: Prospect '{agency_name or 'Unknown'}' skippé (nom ou email manquant). Data: {prospect_data}")
                 continue
             
-            prospect_email_lower = prospect_email.lower()
+            agency_email_lower = agency_email.lower()
 
-            if prospect_email_lower in existing_emails_in_history:
-                print(f"INFO: Email '{prospect_email}' pour '{prospect_name}' déjà dans l'historique. Skip.")
+            if agency_email_lower in existing_emails_in_history:
+                print(f"INFO: Email '{agency_email}' pour '{agency_name}' déjà dans l'historique ou contacté. Skip.")
                 continue
 
-            # Si on arrive ici, c'est un nouveau prospect unique
-            print(f"NOUVEAU LEAD TROUVÉ: '{prospect_name}' ({prospect_email})")
-            
-            # On ajoute un statut pour savoir qu'il a été généré
-            prospect_data["status_llmbasedos"] = f"Generated on {time.strftime('%Y-%m-%d %H:%M:%S')}"
-            
-            actually_new_prospects_for_history.append(prospect_data) 
-            existing_emails_in_history.add(prospect_email_lower) 
 
-        # --- FIN DE LA LOGIQUE D'ENVOI D'EMAIL (qui a été supprimée) ---
-        print(f"\n4. {len(actually_new_prospects_for_history)} nouveaux leads uniques générés cette session.")
+            # Si on arrive ici, c'est un nouvel e-mail à contacter
+            print(f"NOUVEAU CONTACT: '{agency_name}' ({agency_email}). Préparation de l'e-mail...")
+            
+            email_body = EMAIL_BODY_PROPOSAL_TEMPLATE.format(agency_name=agency_name)
+            send_params = {
+                "account_id": EMAIL_SENDING_ACCOUNT_ID,
+                "to": agency_email,
+                "subject": EMAIL_SUBJECT_PROPOSAL,
+                "body": email_body
+            }
+            
+            try:
+                print(f"   Envoi de l'e-mail à {agency_email}...")
+                send_email_result = mcp_call("mcp.mail.send_email", [send_params]) # `params` doit être une liste
+                
+                if send_email_result and send_email_result.get("status") == "success":
+                    print(f"   ✅ SUCCÈS: E-mail envoyé à '{agency_email}' pour '{agency_name}'.")
+                    emails_sent_this_run += 1
+                    prospect_data["status_llmbasedos"] = f"Email proposal sent on {time.strftime('%Y-%m-%d %H:%M:%S')}"
+                else:
+                    print(f"   ⚠️ ÉCHEC d'envoi à '{agency_email}'. Réponse: {send_email_result}")
+                    prospect_data["status_llmbasedos"] = f"Email proposal FAILED on {time.strftime('%Y-%m-%d %H:%M:%S')}"
+            
+            except MCPError as e:
+                print(f"   ❌ ERREUR MCP lors de l'envoi à '{agency_email}': {e}")
+                prospect_data["status_llmbasedos"] = f"Email proposal MCP ERROR on {time.strftime('%Y-%m-%d %H:%M:%S')}: {e.code}"
+            except Exception as e_send:
+                print(f"   ❌ ERREUR INATTENDUE lors de l'envoi à '{agency_email}': {type(e_send).__name__} - {e_send}")
+                prospect_data["status_llmbasedos"] = f"Email proposal UNEXPECTED ERROR on {time.strftime('%Y-%m-%d %H:%M:%S')}"
+                traceback.print_exc()
+
+            actually_new_prospects_for_history.append(prospect_data) # Ajouter à l'historique même si l'e-mail a échoué, mais avec statut
+            existing_emails_in_history.add(agency_email_lower) # Pour éviter de le retenter dans cette même exécution
+
+        print(f"4. {emails_sent_this_run} e-mails de prospection envoyés cette session.")
 
         if actually_new_prospects_for_history:
             updated_history = history_list + actually_new_prospects_for_history
-            print(f"5. Mise à jour de l'historique avec les nouveaux enregistrements. Total: {len(updated_history)}.")
-            
-            # Sauvegarder la nouvelle liste complète dans le fichier d'historique
-            write_result = mcp_call("mcp.fs.write", [history_file, json.dumps(updated_history, indent=2, ensure_ascii=False), "text"])
-            
+            print(f"5. Mise à jour de l'historique avec {len(actually_new_prospects_for_history)} nouveaux enregistrements. Total: {len(updated_history)}.")
+            write_result = mcp_call("mcp.fs.write", [history_file, json.dumps(updated_history, indent=2), "text"])
             if not (write_result and write_result.get("status") == "success"):
                  print(f"AVERTISSEMENT: mcp.fs.write pour l'historique a retourné un statut inattendu : {write_result}")
-            else:
-                 print("   ✅ Historique sauvegardé avec succès.")
         else:
             print("5. Aucun nouveau prospect unique à ajouter à l'historique cette session.")
 

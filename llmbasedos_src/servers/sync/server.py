@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 # --- Import Framework ---
-from llmbasedos.mcp_server_framework import MCPServer 
+from llmbasedos_src.mcp_server_framework import MCPServer 
 from llmbasedos.common_utils import validate_mcp_path_param # Assurez-vous que fs_server en a besoin
 
 # --- Server Specific Configuration ---

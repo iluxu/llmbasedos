@@ -1,39 +1,41 @@
 #!/bin/bash
+# Empêche le script de continuer si une commande échoue
 set -e
 
-echo "Entrypoint: Adjusting permissions for llmuser..."
+echo "--- llmbasedos entrypoint script ---"
 
-# Ensure base cache directory for Hugging Face exists and has correct ownership
-# This will be used by fs_server.
-mkdir -p /opt/app/llmbasedos_cache/huggingface/hub
-chown -R llmuser:llmuser /opt/app/llmbasedos_cache
+# 1. Ajuster les permissions pour le volume de données principal
+# C'est la correction la plus importante. Elle s'exécute APRÈS que
+# docker-compose ait monté le volume, garantissant que 'llmuser' puisse écrire.
+echo "[Entrypoint] Adjusting ownership of /data..."
+# Le `-R` est pour 'récursif', au cas où il y aurait déjà des sous-dossiers.
+# `llmuser:llmuser` définit le propriétaire et le groupe.
+chown -R llmuser:llmuser /data
+echo "[Entrypoint] Permissions for /data set to llmuser."
 
-# Ensure other critical directories llmuser might need to write to have correct ownership
-# These are typically managed by Docker volumes defined in docker-compose.
-# Example for FAISS index, if not already handled by volume permissions:
-if [ -d "/var/lib/llmbasedos/faiss_index" ]; then
-    chown -R llmuser:llmuser /var/lib/llmbasedos/faiss_index
+
+# 2. Ajuster les permissions pour le dossier des sockets MCP
+# Les services doivent pouvoir créer leurs fichiers .sock ici.
+echo "[Entrypoint] Adjusting ownership of /run/mcp..."
+chown -R llmuser:llmuser /run/mcp
+echo "[Entrypoint] Permissions for /run/mcp set to llmuser."
+
+
+# 3. Ajuster les permissions pour le socket Docker (essentiel pour Playwright/Executor)
+# Vérifie que le socket existe avant de changer les permissions.
+if [ -e /var/run/docker.sock ]; then
+    echo "[Entrypoint] Adjusting ownership of Docker socket..."
+    # L'utilisateur 'llmuser' a été ajouté au groupe 'docker' dans le Dockerfile.
+    # Donner la propriété au groupe 'docker' est la méthode la plus propre.
+    chown root:docker /var/run/docker.sock
+    echo "[Entrypoint] Permissions for Docker socket adjusted."
+else
+    echo "[Entrypoint] Docker socket /var/run/docker.sock not found, skipping."
 fi
-# Example for app logs, if not already handled by volume permissions:
-if [ -d "/var/log/llmbasedos" ]; then
-    chown -R llmuser:llmuser /var/log/llmbasedos
-fi
 
-# Ensure /run/mcp exists and is writable by llmuser (Supervisord group or direct ownership)
-# Sockets are created here by services.
-mkdir -p /run/mcp
-chown llmuser:llmuser /run/mcp # Ou llmuser:root, ou llmuser:llmgroup si llmgroup existe et est pertinent
-chmod 775 /run/mcp           # rwxrwxr-x (llmuser et son groupe peuvent écrire)
+echo "[Entrypoint] All permissions adjusted. Starting application..."
+echo "-------------------------------------"
 
-# CORRECTION FINALE : Changer le propriétaire du volume monté
-# pour que llmuser ait le droit d'écrire dedans.
-if [ -d "/mnt/user_data" ]; then
-    echo "Adjusting ownership of /mnt/user_data for llmuser..."
-    chown -R llmuser:llmuser /mnt/user_data
-fi
-
-
-echo "Entrypoint: Permissions adjusted."
-
-# Execute the command passed to this script (CMD from Dockerfile, which is supervisord)
+# Cette commande exécute la suite, c'est-à-dire la commande `CMD`
+# définie dans le Dockerfile (qui est /usr/bin/supervisord ...)
 exec "$@"

@@ -100,7 +100,7 @@ AVAILABLE_LLM_MODELS: Dict[str, Dict[str, Any]] = {
     },
     "gemini-1.5-pro": {
     "provider": "gemini", 
-    "model_name": "gemini-2.5-pro",
+    "model_name": "gemini-2.5-pro-preview-06-05",
     "api_base_url": "https://generativelanguage.googleapis.com/v1beta/models",
     "is_default": DEFAULT_LLM_PROVIDER == "gemini",
     },
