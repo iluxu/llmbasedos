@@ -1,46 +1,39 @@
-# On enlève la ligne "version: '3.8'" qui est obsolète et génère des warnings.
 services:
   llmbasedos:
-  playwright_mcp_server:
-    image: mcr.microsoft.com/playwright/mcp:latest
-    container_name: playwright_mcp_native_server
-    # Commande pour démarrer le serveur en mode headless sur le port 8811
-    command: npx playwright-mcp-server --headless --mcp-port 8811
-    # On ne publie le port que sur le réseau de l'hôte, pour que llmbasedos puisse y accéder
-    network_mode: "host"
-    
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: llmbasedos_paas
-    network_mode: "host"
+    networks:
+      - llmbasedos-net
     privileged: true
-
-    # La commande de débogage qui force le conteneur à rester en vie.
-    # On la commentera une fois le problème résolu.
-
-
-    # Force l'allocation d'un terminal pour une meilleure interaction.
     tty: true
-
     volumes:
       - ./llmbasedos_src:/opt/app/llmbasedos_src:rw
       - /var/run/docker.sock:/var/run/docker.sock
       - ./config:/etc/llmbasedos:ro
       - ./data:/data:rw
-      # On monte le supervisord.conf pour ne pas avoir à rebuild à chaque modif.
       - ./supervisord.conf:/etc/supervisor/conf.d/llmbasedos.conf:ro
-      - llmbasedos_logs:/var/log/llmbasedos
-      - llmbasedos_supervisor_logs:/var/log/supervisor
-      
     environment:
-      - PYTHONUNBUFFERED=1
-      - LLMBDO_LOG_LEVEL=${LLMBDO_LOG_LEVEL:-INFO}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - API_SPORTS_KEY=${API_SPORTS_KEY}
-      - LLMBDO_TENANT_DATA_ROOT=/data
-
+      - PLAYWRIGHT_URL=http://playwright-mcp:5678
+    ports:
+      - "8000:8000"
     restart: unless-stopped
-    stop_grace_period: 30s
+    depends_on:
+      - playwright-mcp
 
-volumes:
-  llmbasedos_logs:
-  llmbasedos_supervisor_logs:
+  playwright-mcp:
+    # On construit notre propre image fiable
+    build:
+      context: ./playwright-mcp 
+    image: playwright-mcp:latest
+    container_name: llmbasedos_playwright
+    networks:
+      - llmbasedos-net
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+
+networks:
+  llmbasedos-net:
+    driver: bridge

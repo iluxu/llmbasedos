@@ -250,7 +250,7 @@ class ShellApp:
         return False
 
     async def send_mcp_request(
-        self, request_id_override: Optional[str], method: str, params: List[Any], timeout: float = 20.0
+        self, request_id_override: Optional[str], method: str, params: List[Any], timeout: float = 120.0
     ) -> Optional[Dict[str, Any]]:
         if self.is_shutting_down: 
             return {"jsonrpc": "2.0", "id": request_id_override, "error": {"code": -32000, "message": "Shell is shutting down."}}

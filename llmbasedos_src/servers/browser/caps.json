@@ -1,0 +1,19 @@
+{
+    "service_name": "browser",
+    "description": "Manages and interacts with ephemeral Playwright browser instances.",
+    "version": "1.0.0",
+    "capabilities": [
+        {
+            "method": "mcp.browser.scrape",
+            "description": "Starts a browser, navigates to a URL, captures a snapshot, and shuts down.",
+            "params_schema": {
+                "type": "array",
+                "prefixItems": [
+                    { "type": "string", "description": "The URL to scrape." }
+                ],
+                "minItems": 1,
+                "maxItems": 1
+            }
+        }
+    ]
+}

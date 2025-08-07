@@ -36,7 +36,7 @@ COPY llmbasedos_src/servers/football_data/requirements.txt /tmp/reqs/06-football
 COPY llmbasedos_src/servers/horse_racing_data/requirements.txt /tmp/reqs/07-horse_racing_data.txt
 COPY llmbasedos_src/shell/requirements.txt                /tmp/reqs/08-shell.txt
 COPY llmbasedos_src/servers/arc_manager/requirements.txt  /tmp/reqs/09-arc-manager.txt
-COPY llmbasedos_src/servers/browser/requirements.txt      /tmp/reqs/10-browser.txt
+COPY llmbasedos_src/servers/browser/requirements.txt /tmp/reqs/10-browser.txt
 
 # Installation des dépendances. Cette couche ne sera reconstruite que si un .txt change.
 RUN cat /tmp/reqs/*.txt | sed '/^[ \t]*#/d' | sed '/^$/d' | sort -u > /tmp/all_requirements.txt && \
