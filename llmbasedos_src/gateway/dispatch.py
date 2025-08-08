@@ -12,7 +12,6 @@ from llmbasedos_src.mcp_server_framework import (
     JSONRPC_INVALID_PARAMS, JSONRPC_INTERNAL_ERROR
 )
 from . import registry
-from . import upstream
 from .auth import LicenceDetails, get_licence_info_for_mcp_call
 from .config import GATEWAY_EXECUTOR_MAX_WORKERS
 
@@ -27,22 +26,30 @@ def _send_request_to_backend_server_blocking(socket_path: str, request_payload: 
     sock = None
     try:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.settimeout(10.0)
+        # Timeout généreux pour les appels potentiellement longs comme ceux des LLMs
+        sock.settimeout(300.0)
         sock.connect(socket_path)
         request_bytes = json.dumps(request_payload).encode('utf-8') + b'\0'
         sock.sendall(request_bytes)
+        
         response_buffer = bytearray()
-        sock.settimeout(120.0)
         while True:
-            chunk = sock.recv(8192)
-            if not chunk: break
-            if b'\0' in chunk:
-                response_buffer.extend(chunk.split(b'\0', 1)[0])
+            # Un buffer plus large pour les réponses potentiellement volumineuses des LLMs
+            chunk = sock.recv(16384)
+            if not chunk:
                 break
             response_buffer.extend(chunk)
-        if not response_buffer:
+            # On arrête de lire dès qu'on a un message complet (terminé par \0)
+            if b'\0' in response_buffer:
+                break
+        
+        # S'assurer de ne traiter que le premier message JSON si plusieurs sont reçus
+        message_bytes, _ = response_buffer.split(b'\0', 1)
+
+        if not message_bytes:
             return create_mcp_error(request_payload.get("id"), JSONRPC_INTERNAL_ERROR, "No response from backend.")
-        return json.loads(response_buffer.decode('utf-8'))
+        
+        return json.loads(message_bytes.decode('utf-8'))
     except Exception as e:
         logger.error(f"Error with local socket {socket_path}: {e}", exc_info=True)
         return create_mcp_error(request_payload.get("id"), JSONRPC_INTERNAL_ERROR, f"Comm error with local backend: {type(e).__name__}.")
@@ -98,54 +105,42 @@ async def handle_mcp_request(
     if method_name == "mcp.licence.check":
         return create_mcp_response(request_id, result=get_licence_info_for_mcp_call(client_websocket_for_context))
 
-    # --- Gestion Spécifique des appels LLM ---
+    # --- MODIFICATION MAJEURE : ROUTAGE DE mcp.llm.chat ---
+    # Tous les appels LLM sont maintenant gérés par le service llm_router.
     if method_name == "mcp.llm.chat":
-        try:
-            # Le paramètre doit être un objet unique, qui peut être dans une liste de taille 1
-            # car le planificateur génère `params: [ { ... } ]`
-            if not (isinstance(params, list) and len(params) == 1 and isinstance(params[0], dict)):
-                 return create_mcp_error(request_id, JSONRPC_INVALID_PARAMS, "Params for mcp.llm.chat must be an array containing a single object.")
+        logger.info(f"Intercepting '{method_name}' and forwarding to the llm_router service.")
+        
+        # Le socket du service llm_router
+        router_socket_path = "/run/mcp/llm_router.sock"
+        
+        # Créer une nouvelle requête pour le routeur en changeant la méthode.
+        # Le format des `params` est déjà compatible.
+        routed_request = request.copy()
+        routed_request["method"] = "mcp.llm.route"
+        
+        loop = asyncio.get_running_loop()
+        # On exécute l'appel bloquant dans un thread pour ne pas bloquer l'event loop du gateway.
+        response_from_router = await loop.run_in_executor(
+            _dispatch_executor, 
+            _send_request_to_backend_server_blocking, 
+            router_socket_path, 
+            routed_request
+        )
+        
+        # Le service llm_router doit retourner une réponse JSON-RPC complète.
+        # On la traite pour la renvoyer au client original.
+        if "result" in response_from_router:
+            # Le "result" du routeur est la réponse finale de l'API LLM (format OpenAI).
+            # On l'encapsule dans une nouvelle réponse pour le client avec l'ID original.
+            return create_mcp_response(request_id, result=response_from_router["result"])
+        elif "error" in response_from_router:
+            # Si le routeur a renvoyé une erreur formatée, on la transmet telle quelle.
+            return response_from_router
+        else:
+            # Si la réponse du routeur est invalide, on génère une erreur interne.
+            return create_mcp_error(request_id, JSONRPC_INTERNAL_ERROR, "Invalid or empty response from the llm_router service.")
 
-            chat_params = params[0] # On prend le premier (et seul) élément, qui est l'objet
-
-            messages = chat_params.get("messages")
-            options = chat_params.get("options", {})
-
-            if not isinstance(messages, list):
-                return create_mcp_error(request_id, JSONRPC_INVALID_PARAMS, "The 'messages' field in chat parameters must be an array.")
-            if not isinstance(options, dict):
-                 return create_mcp_error(request_id, JSONRPC_INVALID_PARAMS, "The 'options' field in chat parameters must be an object.")
-
-            # Le reste du code reste identique
-            stream_flag = options.pop("stream", False)
-            model_alias = options.pop("model", None)
-
-            llm_api_response_or_generator = await upstream.call_llm_chat_completion(
-                request_id=request_id,
-                messages=messages, 
-                licence=licence_details, 
-                requested_model_alias=model_alias, 
-                stream=stream_flag, 
-                **options
-            )
-
-            # ... (la logique de retour reste la même) ...
-            if isinstance(llm_api_response_or_generator, AsyncGenerator):
-                return llm_api_response_or_generator
-            elif isinstance(llm_api_response_or_generator, dict):
-                if "error" in llm_api_response_or_generator:
-                    return llm_api_response_or_generator
-                else:
-                    return create_mcp_response(request_id, result=llm_api_response_or_generator)
-            else:
-                return create_mcp_error(request_id, JSONRPC_INTERNAL_ERROR, "Internal error: Unexpected response type from LLM upstream handler.")
-
-        except Exception as e:
-            logger.error(f"Error in mcp.llm.chat dispatch for ID {request_id}: {e}", exc_info=True)
-            return create_mcp_error(request_id, JSONRPC_INTERNAL_ERROR, f"Failed to process mcp.llm.chat request: {type(e).__name__}")
-
-
-    # --- Routage vers les Services Backend (fs, mail, etc.) ---
+    # --- Routage vers les autres Services Backend (fs, mail, etc.) ---
     routing_info = registry.get_capability_routing_info(method_name)
     if routing_info:
         if routing_info.get("socket_path") == "external":

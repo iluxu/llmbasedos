@@ -1,0 +1,6 @@
+name: synaps_confidential_demo
+description: >
+  Demo Arc for Petar (Synaps Network Confidential Analysis)
+  Runs locally on Gemma:2b via LLM Router + Ollama.
+version: 1.0
+entrypoint: main_agent.py

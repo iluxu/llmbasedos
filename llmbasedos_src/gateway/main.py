@@ -6,10 +6,12 @@ import logging.config
 from pathlib import Path
 import os
 import signal 
+import uuid # <-- AJOUTÉ
 from typing import Any, Dict, List, Optional, AsyncGenerator, Set
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request # <-- MODIFIÉ
+from fastapi.responses import JSONResponse # <-- AJOUTÉ
 from starlette.websockets import WebSocketState
 from contextlib import asynccontextmanager
 
@@ -68,10 +70,6 @@ async def _start_unix_socket_server_logic():
         addr = _unix_socket_server_instance.sockets[0].getsockname() if _unix_socket_server_instance.sockets else str(socket_path_obj)
         logger.info(f"MCP Gateway listening on UNIX socket: {addr}")
         try:
-            # Assumer que l'utilisateur qui lance (root dans le conteneur) peut faire chown/chmod
-            # L'entrypoint.sh devrait avoir créé llmuser avec un UID/GID connu (ex: 1000)
-            # Cette logique peut échouer si on ne tourne pas en root, mais c'est le cas pour supervisord.
-            uid = os.geteuid(); gid = os.getgid() # Sera root si supervisord est root
             os.chmod(str(socket_path_obj), 0o660) # rw pour user et group
             logger.info(f"Set permissions for {socket_path_obj} to 0660.")
         except OSError as e_perm:
@@ -80,7 +78,7 @@ async def _start_unix_socket_server_logic():
         logger.error(f"Failed to start UNIX socket server on {socket_path_obj}: {e_start_unix}", exc_info=True)
         _unix_socket_server_instance = None
 
-async def _stop_tcp_socket_server_logic(): # NOUVELLE fonction pour arrêter le TCP
+async def _stop_tcp_socket_server_logic():
     global _tcp_socket_server_instance
     if _tcp_socket_server_instance:
         logger.info("Stopping TCP socket server...")
@@ -91,22 +89,6 @@ async def _stop_tcp_socket_server_logic(): # NOUVELLE fonction pour arrêter le 
             logger.error(f"Error closing TCP server: {e}")
         _tcp_socket_server_instance = None
         logger.info("TCP server socket now closed.")
-
-# async def _start_tcp_socket_server_logic():
-    # global _tcp_socket_server_instance # Nouvelle variable globale
-    # host = "0.0.0.0" # Écoute sur toutes les interfaces dans le conteneur
-    # port = 8812      # Le port que socat va viser
-
-    # try:
-        # # _run_unix_socket_client_handler_managed peut être réutilisé car il lit/écrit sur un stream
-        # _tcp_socket_server_instance = await asyncio.start_server(
-            # _run_unix_socket_client_handler_managed, # On réutilise le même handler !
-            # host,
-            # port
-        # )
-        # logger.info(f"MCP Gateway also listening on TCP socket: {host}:{port}")
-    # except Exception as e:
-        # logger.error(f"Failed to start TCP socket server: {e}", exc_info=True)
 
 async def _stop_unix_socket_server_logic():
     global _unix_socket_server_instance
@@ -136,17 +118,14 @@ async def _handle_single_unix_client_task(reader: asyncio.StreamReader, writer: 
     try:
         while not _shutdown_event_flag.is_set():
             message_buffer = bytearray()
-            # Lire un message complet
             while b'\0' not in message_buffer:
                 chunk = await asyncio.wait_for(reader.read(4096), timeout=1.0)
                 if not chunk: 
                     logger.info(f"UNIX client {client_desc} disconnected (EOF).")
-                    return # Fin de la connexion
+                    return
                 message_buffer.extend(chunk)
             
-            message_bytes, rest_of_buffer = message_buffer.split(b'\0', 1)
-            # message_buffer = rest_of_buffer # Pour gérer plusieurs requêtes sur un seul read, mais on traite une par une
-            
+            message_bytes, _ = message_buffer.split(b'\0', 1)
             message_str = message_bytes.decode('utf-8')
             logger.debug(f"UNIX RCV from {client_desc}: {message_str[:250]}...")
             
@@ -203,9 +182,9 @@ async def _handle_single_unix_client_task(reader: asyncio.StreamReader, writer: 
 
 async def _run_unix_socket_client_handler_managed(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
     task = asyncio.current_task()
-    _active_unix_client_tasks.add(task) # type: ignore
+    _active_unix_client_tasks.add(task)
     try: await _handle_single_unix_client_task(reader, writer)
-    finally: _active_unix_client_tasks.discard(task) # type: ignore
+    finally: _active_unix_client_tasks.discard(task)
 
 @asynccontextmanager
 async def lifespan_manager(app_fastapi: FastAPI):
@@ -228,24 +207,22 @@ async def lifespan_manager(app_fastapi: FastAPI):
     _capability_watcher_task_instance = asyncio.create_task(registry.start_capability_watcher_task(), name="CapabilityWatcher")
     logger.info("Capability watcher task created.")
     await _start_unix_socket_server_logic()
-    #await _start_tcp_socket_server_logic() 
     logger.info("Gateway Lifespan: Startup complete. Application is ready.")
-    try: yield
+    try:
+        yield
     finally:
         logger.info("Gateway Lifespan: Shutdown sequence initiated...")
         if not _shutdown_event_flag.is_set(): _shutdown_event_flag.set()
         if _capability_watcher_task_instance and not _capability_watcher_task_instance.done():
-            logger.info("Cancelling capability watcher task...")
             _capability_watcher_task_instance.cancel()
             try: await _capability_watcher_task_instance
             except asyncio.CancelledError: logger.info("Capability watcher task successfully cancelled.")
-            except Exception as e_watch_stop: logger.error(f"Error stopping watcher task: {e_watch_stop}", exc_info=True)
         await _stop_unix_socket_server_logic()
-        #await _stop_tcp_socket_server_logic()
+        await _stop_tcp_socket_server_logic()
         dispatch.shutdown_dispatch_executor()
         for sig_val in active_signals:
             try: loop.remove_signal_handler(sig_val)
-            except Exception as e_rem_sig: logger.debug(f"Error removing signal handler for {sig_val}: {e_rem_sig}")
+            except Exception: pass
         logger.info("Gateway Lifespan: Shutdown complete.")
 
 app = FastAPI(
@@ -255,6 +232,60 @@ app = FastAPI(
     lifespan=lifespan_manager
 )
 
+# ====================================================================
+# == NOUVELLE ROUTE HTTP POUR COMPATIBILITÉ OPENAI                ==
+# ====================================================================
+@app.post("/v1/chat/completions")
+async def handle_openai_compatible_request(request: Request):
+    logger.info("Received OpenAI-compatible HTTP request.")
+    try:
+        openai_payload = await request.json()
+        
+        messages = openai_payload.get("messages", [])
+        options = {
+            "model": openai_payload.get("model"),
+            "temperature": openai_payload.get("temperature"),
+            "max_tokens": openai_payload.get("max_tokens"),
+            "stream": openai_payload.get("stream", False)
+        }
+        
+        mcp_params = [{
+            "messages": messages,
+            "options": {k: v for k, v in options.items() if v is not None}
+        }]
+        
+        class MockHttpContext:
+            class Client:
+                host = request.client.host if request.client else "unknown_http_host"
+            client = Client()
+
+        licence_ctx, auth_error_obj = authenticate_and_authorize_request(MockHttpContext(), "mcp.llm.chat")
+        if auth_error_obj:
+            return JSONResponse(status_code=401, content={"error": auth_error_obj})
+        if not licence_ctx:
+             return JSONResponse(status_code=500, content={"error": {"message": "Internal licence context error."}})
+
+        mcp_request_payload = {
+            "jsonrpc": "2.0",
+            "method": "mcp.llm.chat",
+            "params": mcp_params,
+            "id": f"http-req-{uuid.uuid4().hex[:8]}"
+        }
+        
+        mcp_response = await dispatch.handle_mcp_request(mcp_request_payload, licence_ctx, MockHttpContext())
+        
+        if "result" in mcp_response:
+            return JSONResponse(content=mcp_response["result"])
+        else:
+            return JSONResponse(status_code=500, content={"error": mcp_response.get("error")})
+
+    except Exception as e:
+        logger.error(f"Error in OpenAI-compatible endpoint: {e}", exc_info=True)
+        return JSONResponse(status_code=500, content={"error": {"message": "Internal Server Error"}})
+# ====================================================================
+# == FIN DE L'AJOUT                                               ==
+# ====================================================================
+
 @app.websocket("/ws")
 async def websocket_mcp_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -263,7 +294,7 @@ async def websocket_mcp_endpoint(websocket: WebSocket):
     
     try:
         while not _shutdown_event_flag.is_set():
-            request_data = None # Pour le bloc except
+            request_data = None
             try:
                 raw_data = await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
                 

@@ -1,6 +1,7 @@
 {
     "service_name": "executor",
-    "description": "Executes and manages autonomous agent scripts in isolated environments.",
+    "description": "Executes and manages autonomous agent scripts in isolated, sandboxed containers.",
+    "version": "1.0.0",
     "capabilities": [
         {
             "method": "mcp.agent.run",
@@ -10,10 +11,13 @@
                 "items": [{
                     "type": "object",
                     "properties": {
-                        "tenant_id": {"type": "string"},
+                        "tenant_id": {"type": "string", "description": "The user/tenant ID for data sandboxing."},
                         "agent_script": {"type": "string", "description": "The full Python code of the agent."},
-                        "requirements": {"type": "array", "items": {"type": "string"}, "description": "List of pip dependencies."},
-                        "params": {"type": "object", "description": "JSON object of parameters to pass to the agent's run function."}
+                        "requirements": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of pip dependencies."
+                        }
                     },
                     "required": ["tenant_id", "agent_script"]
                 }]

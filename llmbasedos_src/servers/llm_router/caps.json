@@ -1,0 +1,26 @@
+{
+    "service_name": "llm_router",
+    "description": "Intelligent, cost-optimizing, multi-provider LLM router.",
+    "version": "0.1.0",
+    "capabilities": [
+        {
+            "method": "mcp.llm.route",
+            "description": "Routes a chat request to the optimal LLM provider.",
+            "params_schema": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "prefixItems": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "messages": { "type": "array" },
+                            "options": { "type": "object" }
+                        },
+                        "required": ["messages"]
+                    }
+                ]
+            }
+        }
+    ]
+}

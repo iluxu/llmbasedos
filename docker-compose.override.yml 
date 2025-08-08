@@ -1,0 +1,9 @@
+version: '3.8'
+services:
+  llmbasedos_paas:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./llmbasedos_src:/opt/app/llmbasedos_src:rw
+    command: python llmbasedos_src/servers/llm_router/server.py

@@ -1,0 +1,30 @@
+{
+    "service_name": "predictor",
+    "description": "Predictive analytics for user behaviour.",
+    "version": "0.1.0",
+    "capabilities": [
+      {
+        "method": "mcp.predictor.booking_probability",
+        "description": "Predicts booking probability for a user.",
+        "params_schema": {
+          "type": "array",
+          "prefixItems": [{ "type": "string", "description": "User ID" }],
+          "minItems": 1,
+          "maxItems": 1,
+          "items": false
+        }
+      },
+      {
+        "method": "mcp.predictor.churn_risk",
+        "description": "Estimates churn risk for a user.",
+        "params_schema": {
+          "type": "array",
+          "prefixItems": [{ "type": "string", "description": "User ID" }],
+          "minItems": 1,
+          "maxItems": 1,
+          "items": false
+        }
+      }
+    ]
+  }
+  

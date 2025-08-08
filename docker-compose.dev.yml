@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  llmbasedos_paas:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: llmbasedos_dev
+    volumes:
+      - ./llmbasedos_src:/opt/app/llmbasedos_src:rw
+    command: python llmbasedos_src/servers/llm_router/server.py
+    depends_on:
+      - ollama
+      - redis
+    environment:
+      REDIS_HOST: redis
+      REDIS_PASSWORD: helloworld
+      DEV_MODE: "true"
+      LOCAL_LLM: "gemma:2b"
+    ports:
+      - "8000:8000"
+    tty: true
+
+  redis:
+    image: redis:7-alpine
+    container_name: llmbasedos_redis
+    command: redis-server --requirepass helloworld
+    ports:
+      - "6379:6379"
+
+  ollama:   # ✅ now inside 'services'
+    image: ollama/ollama:latest
+    container_name: llmbasedos_ollama
+    entrypoint: ["ollama", "serve"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+
+volumes:
+  ollama_models:

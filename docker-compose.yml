@@ -1,29 +1,40 @@
+# Fichier: docker-compose.yml
+
 services:
-  llmbasedos:
+  llmbasedos_paas:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: llmbasedos_paas
     networks:
       - llmbasedos-net
-    privileged: true
     tty: true
     volumes:
       - ./llmbasedos_src:/opt/app/llmbasedos_src:rw
+      - ./supervisord.conf:/etc/supervisor/conf.d/llmbasedos.conf:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ./config:/etc/llmbasedos:ro
       - ./data:/data:rw
-      - ./supervisord.conf:/etc/supervisor/conf.d/llmbasedos.conf:ro
+      # NOTE: Le supervisord.conf est maintenant copié dans le Dockerfile, pas besoin de le monter ici.
+    env_file:
+      - .env # Charge toutes les variables depuis le fichier .env
     environment:
-      - PLAYWRIGHT_URL=http://playwright-mcp:5678
+      # Ces variables sont pour la communication interne de Docker
+      - PLAYWRIGHT_URL=${PLAYWRIGHT_URL}
+      - REDIS_HOST=redis
+      - CHROMA_HOST=${CHROMA_HOST}
+      - MEMOBASE_URL=http://memobase:8019
+      - MEMOBASE_PROJECT_TOKEN=${MEMOBASE_PROJECT_TOKEN} # Utilise la variable du .env
     ports:
       - "8000:8000"
     restart: unless-stopped
     depends_on:
       - playwright-mcp
+      - redis
+      - chroma
+      - memobase
 
   playwright-mcp:
-    # On construit notre propre image fiable
     build:
       context: ./playwright-mcp 
     image: playwright-mcp:latest
@@ -33,6 +44,65 @@ services:
     restart: unless-stopped
     ports:
       - "5678:5678"
+
+  redis:
+    image: redis:7-alpine
+    container_name: llmbasedos_redis
+    networks:
+      - llmbasedos-net
+    ports:
+      - "${REDIS_PORT}:6379" # Port externe configurable via .env
+    command: redis-server --requirepass ${REDIS_PASSWORD} # Active le mot de passe
+    restart: unless-stopped
+
+  chroma:
+    image: chromadb/chroma
+    container_name: llmbasedos_chroma
+    networks:
+      - llmbasedos-net
+    ports:
+      - "8001:8000"
+    restart: unless-stopped
+
+  memobase:
+    image: ghcr.io/memodb-io/memobase:latest
+    container_name: llmbasedos_memobase
+    networks:
+      - llmbasedos-net
+    ports:
+      - "8019:8019"
+    volumes:
+      - ./memobase_config/config.yaml:/app/api/config.yaml:ro
+    environment:
+      # On utilise les noms de service Docker, pas localhost
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@memobase_db:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1 # Le client Redis de Memobase a besoin du mdp
+      - MEMOBASE_LLM_API_KEY=${MEMOBASE_PROJECT_TOKEN} # Le token pour que Memobase parle à notre PAAS
+      - MEMOBASE_LLM_BASE_URL=http://llmbasedos_paas:8000/v1 # L'URL interne de notre PAAS
+      - MEMOBASE_ENABLE_EVENT_EMBEDDING=false
+    depends_on:
+      - redis
+      - memobase_db
+    restart: unless-stopped 
+
+  memobase_db:
+    image: pgvector/pgvector:pg15
+    container_name: llmbasedos_memobase_db
+    networks:
+      - llmbasedos-net
+    ports:
+      - "${POSTGRES_PORT}:5432" # Port externe configurable via .env
+    environment:
+      # Ces variables sont lues depuis le fichier .env
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - llmbasedos_memobase_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  llmbasedos_memobase_data:
 
 networks:
   llmbasedos-net:

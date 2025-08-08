@@ -1,0 +1,94 @@
+# syntax=docker/dockerfile:1.6
+
+#######################################################################
+# STAGE 1 : BUILDER — Compile toutes les dépendances en wheels
+#######################################################################
+FROM python:3.10-bullseye AS builder
+LABEL maintainer="Luca Mucciaccio <mucciaccioluca@gmail.com>"
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1 \
+    APP_ROOT_DIR=/opt/app
+
+WORKDIR ${APP_ROOT_DIR}
+
+# 1️⃣ Dépendances système de base (inchangées = cache max)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl docker.io libmagic1 build-essential python3-dev \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# 2️⃣ Dépendances Python globales projet
+COPY llmbasedos_src/requirements.txt /tmp/reqs/root.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/root.txt
+
+# 3️⃣ Dépendances service par service (cache indépendant)
+COPY llmbasedos_src/servers/memobase/requirements.txt /tmp/reqs/memobase.txt
+# FIX: ensure memobase client lib is installed
+RUN echo "memobase" >> /tmp/reqs/memobase.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/memobase.txt
+
+# ⚡ Repeat for other services...
+COPY llmbasedos_src/gateway/requirements.txt /tmp/reqs/gateway.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/gateway.txt
+
+COPY llmbasedos_src/servers/llm_router/requirements.txt /tmp/reqs/llm_router.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/llm_router.txt
+
+#######################################################################
+# STAGE 2 : RUNNER — Image finale super légère
+#######################################################################
+FROM python:3.10-bullseye
+LABEL description="llmbasedos - Cognitive Agent PaaS"
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    APP_ROOT_DIR=/opt/app
+
+WORKDIR ${APP_ROOT_DIR}
+
+# Dépendances runtime légères
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    supervisor curl docker.io libmagic1 \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Copie wheels précompilées
+COPY --from=builder /tmp/wheels /tmp/wheels
+
+# Install global
+COPY llmbasedos_src/requirements.txt /tmp/reqs/root.txt
+RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/root.txt
+
+# Install services spécifiques
+COPY llmbasedos_src/servers/memobase/requirements.txt /tmp/reqs/memobase.txt
+RUN echo "memobase" >> /tmp/reqs/memobase.txt \
+ && pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/memobase.txt
+
+COPY llmbasedos_src/gateway/requirements.txt /tmp/reqs/gateway.txt
+RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/gateway.txt
+
+COPY llmbasedos_src/servers/llm_router/requirements.txt /tmp/reqs/llm_router.txt
+RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/llm_router.txt
+
+# Cleanup
+RUN rm -rf /tmp/reqs /tmp/wheels
+
+# User non-root
+ARG APP_USER=llmuser
+RUN useradd -ms /bin/bash ${APP_USER} && usermod -aG docker ${APP_USER} \
+ && mkdir -p /run/mcp /var/log/supervisor /data \
+ && chown -R ${APP_USER}:${APP_USER} ${APP_ROOT_DIR}
+
+# Code applicatif
+COPY ./llmbasedos_src ${APP_ROOT_DIR}/llmbasedos_src
+COPY ./supervisord.conf /etc/supervisor/conf.d/llmbasedos.conf
+COPY ./entrypoint.sh /opt/app/entrypoint.sh
+RUN chmod +x /opt/app/entrypoint.sh
+
+ENV PYTHONPATH=/opt/app
+
+ENTRYPOINT ["/opt/app/entrypoint.sh"]
+CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/conf.d/llmbasedos.conf"]

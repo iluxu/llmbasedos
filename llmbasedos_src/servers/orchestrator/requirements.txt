@@ -1,0 +1,4 @@
+# llmbasedos_src/servers/orchestrator/requirements.txt
+# Aucune dépendance Python supplémentaire requise pour ce service pour le moment.
+# Il utilise les bibliothèques standards et celles déjà incluses dans la base.
+

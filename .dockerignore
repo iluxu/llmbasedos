@@ -1,0 +1,28 @@
+# Fichier: .dockerignore
+
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info
+build/
+dist/
+
+# Fichiers de configuration IDE
+.vscode/
+.idea/
+
+# Fichiers de log et de données locales
+*.log
+data/
+user_files/
+cache_project_ingestion.txt
+
+# Dépendances Node (si jamais vous en ajoutez)
+node_modules/

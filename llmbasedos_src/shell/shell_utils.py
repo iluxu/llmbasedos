@@ -6,10 +6,6 @@ import logging
 import sys # Pour sys.stdout.flush()
 from typing import List, Dict, Any, Optional
 
-# Importer directement les types nécessaires de websockets (pas besoin pour cette fonction si app gère le ws)
-# from websockets.client import WebSocketClientProtocol # Non utilisé directement ici
-# from websockets.exceptions import ConnectionClosed, ConnectionClosedOK, WebSocketException # Non utilisé directement ici
-
 from rich.console import Console
 from rich.text import Text
 from rich.syntax import Syntax
@@ -32,13 +28,27 @@ async def stream_llm_chat_to_console(
     reads chunks from the associated asyncio.Queue, and prints them to the console.
     """
     
-    actual_llm_options = {"stream": True, **(llm_options or {})}
+    actual_llm_options = {"stream": False, **(llm_options or {})}
     # Forcer stream=True car cette fonction est pour le streaming vers la console
-    actual_llm_options["stream"] = True 
+     
+
+    # ====================================================================
+    # == CORRECTION POUR CORRESPONDRE AU SCHÉMA DU ROUTEUR            ==
+    # ====================================================================
+    # On crée un seul objet contenant 'messages' et 'options'
+    request_data = {
+        "messages": messages,
+        "options": actual_llm_options
+    }
+    # Et on met cet objet dans une liste, qui sera le paramètre `params`
+    params_to_send = [request_data]
+    # ====================================================================
+    # == FIN DE LA CORRECTION                                         ==
+    # ====================================================================
 
     # Demander à ShellApp d'initier le stream et de nous donner l'ID de requête et la queue
     request_id, stream_queue = await app.start_mcp_stream_request(
-        "mcp.llm.chat", [messages, actual_llm_options]
+        "mcp.llm.chat", params_to_send
     )
 
     if not request_id or not stream_queue:
@@ -76,8 +86,6 @@ async def stream_llm_chat_to_console(
 
             logger.debug(f"STREAM_UTIL RCV from Queue (Expected ID {request_id}, Got ID {response_json.get('id')}): {str(response_json)[:200]}")
             
-            # Normalement, le listener dans ShellApp ne devrait mettre dans la queue que les messages pour cet ID.
-            # Mais une vérification ici peut être une sécurité additionnelle.
             if response_json.get("id") != request_id:
                 logger.warning(f"STREAM_UTIL: Mismatched ID in stream queue! Expected {request_id}, got {response_json.get('id')}. Ignoring chunk.")
                 continue
@@ -91,38 +99,34 @@ async def stream_llm_chat_to_console(
 
             result = response_json.get("result", {})
             if result.get("type") == "llm_chunk":
-                llm_api_chunk = result.get("content", {}) # C'est le payload brut de l'API LLM
+                llm_api_chunk = result.get("content", {})
                 delta = ""
-                if isinstance(llm_api_chunk, dict): # Structure type OpenAI
+                if isinstance(llm_api_chunk, dict):
                     delta = llm_api_chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
                 
                 if delta:
                     app.console.print(delta, end="")
-                    sys.stdout.flush() # Forcer l'affichage immédiat
+                    sys.stdout.flush()
                     full_response_text += delta
             elif result.get("type") == "llm_stream_end":
-                app.console.print() # Nouvelle ligne finale
+                app.console.print()
                 logger.info(f"LLM Stream (ID {request_id}) ended successfully. Total length: {len(full_response_text)}")
-                break # Fin normale du stream
+                break
             else:
                 logger.warning(f"STREAM_UTIL: Unknown result type from queue: '{result.get('type')}' for ID {request_id}")
         
-    except Exception as e_outer_stream: # Erreur inattendue dans la logique de la boucle while
+    except Exception as e_outer_stream:
         logger.error(f"STREAM_UTIL: General error processing stream (ID {request_id}): {e_outer_stream}", exc_info=True)
         app.console.print(f"\n[[error]LLM stream processing error[/]]: {escape(str(e_outer_stream))}")
     finally:
-        # Le `finally` est pour le `try` qui entoure la boucle `while`.
-        # S'assurer que la queue est retirée des streams actifs de ShellApp si ce n'est pas déjà fait.
-        if request_id and request_id in app.active_streams: # Vérifier si request_id a été défini
+        if request_id and request_id in app.active_streams:
             logger.debug(f"Cleaning up stream queue for request ID {request_id} in stream_llm_chat_to_console's finally block.")
-            # Vider la queue pour éviter que des messages restants ne soient lus par une future instance
-            # ou que le listener ne bloque en essayant de mettre dans une queue pleine.
             queue_to_clean = app.active_streams.get(request_id)
             if queue_to_clean:
                 while not queue_to_clean.empty():
                     try: queue_to_clean.get_nowait(); queue_to_clean.task_done()
                     except asyncio.QueueEmpty: break
-                    except Exception: break # Pour les autres erreurs de queue
-            app.active_streams.pop(request_id, None) # Enlever la référence de la queue des streams actifs
+                    except Exception: break
+            app.active_streams.pop(request_id, None)
             
     return full_response_text

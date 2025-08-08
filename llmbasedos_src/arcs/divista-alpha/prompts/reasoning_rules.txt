@@ -1,0 +1,4 @@
+- Toujours personnaliser les réponses en fonction de l’historique de conversation
+- Surveiller les signes d’intérêt ou de désengagement
+- Adapter la chaleur émotionnelle selon le contexte
+- Introduire subtilement la rareté et l’urgence quand l’intérêt est élevé

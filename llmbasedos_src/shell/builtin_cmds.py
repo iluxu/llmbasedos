@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from .luca import ShellApp # Utilisé pour l'annotation de type de 'app'
 
 # Shell utils (si cmd_llm l'utilise directement)
-from .shell_utils import stream_llm_chat_to_console # stream_llm_chat_to_console est nécessaire pour cmd_llm
+from .shell_utils import stream_llm_chat_to_console
 from rich.text import Text # Pour formater certains messages
 
 # Liste des commandes builtin (pour la complétion et l'aide)
@@ -21,12 +21,11 @@ BUILTIN_COMMAND_LIST = [
 ]
 
 # --- Implémentation des Commandes Built-in ---
-# Nouvelle signature : async def cmd_nom_commande(args_list: List[str], app: 'ShellApp')
 
 async def cmd_exit(args_list: List[str], app: 'ShellApp'):
     """Exits the luca-shell."""
     app.console.print("Exiting luca-shell...")
-    raise EOFError # Signale à prompt_toolkit de quitter la boucle REPL
+    raise EOFError
 
 async def cmd_quit(args_list: List[str], app: 'ShellApp'):
     """Alias for the 'exit' command."""
@@ -36,11 +35,9 @@ async def cmd_help(args_list: List[str], app: 'ShellApp'):
     """Shows available commands or help for a specific command.
     Usage: help [builtin_command_name]
     """
-    # Utiliser app.console qui est l'instance de Rich Console de ShellApp
     if not args_list:
         app.console.print("[bold]Available luca-shell built-in commands:[/bold]")
-        # Assumer que ShellApp a une méthode pour créer une table Rich ou que Table est importé ici
-        from rich.table import Table # Importer Table ici si besoin local
+        from rich.table import Table
         tbl = Table(title="Built-in Commands", show_header=True, header_style="bold magenta")
         tbl.add_column("Command", style="dim", width=15)
         tbl.add_column("Description")
@@ -80,35 +77,28 @@ async def cmd_connect(args_list: List[str], app: 'ShellApp'):
     else:
         app.console.print("[[error]Failed to connect[/]]. Check gateway status and URL configured in shell.")
 
-# Dans builtin_cmds.py
 async def cmd_cd(args_list: List[str], app: 'ShellApp'):
     if not args_list:
-        target_virt_path_str = "/" # Aller à la racine virtuelle
+        target_virt_path_str = "/"
     else:
         target_virt_path_str = args_list[0]
 
-    # Construire le nouveau chemin virtuel
-    # Path.resolve() aide à gérer les ".." etc.
     if target_virt_path_str.startswith("/"):
-        new_virt_path = Path(target_virt_path_str).resolve()
+        new_virt_path = Path(target_virt_path_str)
     else:
-        new_virt_path = (app.get_cwd() / target_virt_path_str).resolve()
+        new_virt_path = app.get_cwd() / target_virt_path_str
     
-    # Normaliser pour s'assurer qu'il commence par "/" (resolve peut enlever le / initial si vide)
-    if not str(new_virt_path).startswith("/"):
-         new_virt_path = Path("/") / new_virt_path
-
-    # Envoyer ce chemin virtuel normalisé pour validation
-    response = await app.send_mcp_request(None, "mcp.fs.list", [str(new_virt_path)])
+    # Utiliser os.path.normpath pour résoudre les '..' etc. de manière simple
+    normalized_path = os.path.normpath(str(new_virt_path))
+    
+    response = await app.send_mcp_request(None, "mcp.fs.list", [normalized_path])
     
     if response and "result" in response:
-        app.set_cwd(new_virt_path) # Mettre à jour le CWD virtuel du shell
-    # ... gestion des erreurs ...
+        app.set_cwd(Path(normalized_path))
     elif response and "error" in response:
-        # Utiliser app._format_and_print_mcp_response pour afficher l'erreur MCP de manière standard
-        await app._format_and_print_mcp_response("mcp.fs.list", response, request_path_for_ls=str(new_path_obj))
+        await app._format_and_print_mcp_response("mcp.fs.list", response, request_path_for_ls=normalized_path)
     else:
-        app.console.print(f"[[error]cd error[/]]: Error verifying path '{new_path_obj}'. No or invalid response from gateway.")
+        app.console.print(f"[[error]cd error[/]]: Error verifying path '{normalized_path}'. No or invalid response from gateway.")
 
 async def cmd_pwd(args_list: List[str], app: 'ShellApp'):
     """Prints the current working directory managed by the shell."""
@@ -118,11 +108,13 @@ async def cmd_ls(args_list: List[str], app: 'ShellApp'):
     """Lists files and directories. Usage: ls [path]"""
     path_arg_str = args_list[0] if args_list else "."
     
-    expanded_path_str = os.path.expanduser(path_arg_str) if path_arg_str.startswith('~') else path_arg_str
-    abs_path_obj = (app.get_cwd() / expanded_path_str).resolve() if not os.path.isabs(expanded_path_str) else Path(expanded_path_str).resolve()
-    
-    response = await app.send_mcp_request(None, "mcp.fs.list", [str(abs_path_obj)])
-    await app._format_and_print_mcp_response("mcp.fs.list", response, request_path_for_ls=str(abs_path_obj))
+    if path_arg_str.startswith('/'):
+        abs_path_str = os.path.normpath(path_arg_str)
+    else:
+        abs_path_str = os.path.normpath(os.path.join(str(app.get_cwd()), path_arg_str))
+
+    response = await app.send_mcp_request(None, "mcp.fs.list", [abs_path_str])
+    await app._format_and_print_mcp_response("mcp.fs.list", response, request_path_for_ls=abs_path_str)
 
 async def cmd_dir(args_list: List[str], app: 'ShellApp'):
     """Alias for the 'ls' command."""
@@ -135,11 +127,13 @@ async def cmd_cat(args_list: List[str], app: 'ShellApp'):
         return
 
     path_str_arg = args_list[0]
-    expanded_path_str = os.path.expanduser(path_str_arg) if path_str_arg.startswith('~') else path_str_arg
-    abs_path_obj = (app.get_cwd() / expanded_path_str).resolve() if not os.path.isabs(expanded_path_str) else Path(expanded_path_str).resolve()
+    if path_str_arg.startswith('/'):
+        abs_path_str = os.path.normpath(path_str_arg)
+    else:
+        abs_path_str = os.path.normpath(os.path.join(str(app.get_cwd()), path_str_arg))
     
-    mcp_params: List[Any] = [str(abs_path_obj)]
-    if len(args_list) > 1: # Pour l'argument optionnel d'encodage
+    mcp_params: List[Any] = [abs_path_str]
+    if len(args_list) > 1:
         mcp_params.append(args_list[1])
 
     response = await app.send_mcp_request(None, "mcp.fs.read", mcp_params)
@@ -160,29 +154,32 @@ async def cmd_rm(args_list: List[str], app: 'ShellApp'):
         app.console.print(f"[yellow]{confirm_msg}Add --force or -f to confirm. Skipping for now.[/yellow]")
         return
 
-    expanded_path_str = os.path.expanduser(path_to_delete_str) if path_to_delete_str.startswith('~') else path_to_delete_str
-    abs_path_str_to_delete = str((app.get_cwd() / expanded_path_str).resolve() if not os.path.isabs(expanded_path_str) else Path(expanded_path_str).resolve())
+    if path_to_delete_str.startswith('/'):
+        abs_path_str_to_delete = os.path.normpath(path_to_delete_str)
+    else:
+        abs_path_str_to_delete = os.path.normpath(os.path.join(str(app.get_cwd()), path_to_delete_str))
     
     mcp_params_for_rm = [abs_path_str_to_delete, recursive_flag]
     response = await app.send_mcp_request(None, "mcp.fs.delete", mcp_params_for_rm)
-    await app._format_and_print_mcp_response("mcp.fs.delete", response, request_path_for_ls=abs_path_str_to_delete)
+    await app._format_and_print_mcp_response("mcp.fs.delete", response)
 
 async def cmd_licence(args_list: List[str], app: 'ShellApp'):
     """Displays current licence information from the gateway."""
     response = await app.send_mcp_request(None, "mcp.licence.check", [])
     await app._format_and_print_mcp_response("mcp.licence.check", response)
 
+# ====================================================================
+# == VERSION CORRIGÉE POUR UN APPEL SIMPLE (NON-STREAMING)        ==
+# ====================================================================
 async def cmd_llm(args_list: List[str], app: 'ShellApp'):
     """
-    Sends a chat prompt to the LLM via mcp.llm.chat for a streaming response.
+    Sends a chat prompt to the LLM.
     Usage: llm "Your prompt text" ['<json_options_dict_string>']
-    Example: llm "What is the capital of France?"
-    Example: llm "Translate to Spanish: Hello World" '{"model": "gpt-4o"}'
-    Note: Options dictionary string must be valid JSON.
     """
     if not args_list:
         app.console.print(Text("Usage: llm \"<prompt_text>\" ['<json_options_dict_string>']", style="yellow"))
-        app.console.print(Text("Example: llm \"Tell me a joke about developers.\"", style="yellow")); return
+        app.console.print(Text("Example: llm \"Tell me a joke about developers.\"", style="yellow"))
+        return
 
     prompt_str = args_list[0]
     options_json_str = args_list[1] if len(args_list) > 1 else "{}" 
@@ -191,18 +188,37 @@ async def cmd_llm(args_list: List[str], app: 'ShellApp'):
     try:
         llm_options_dict = json.loads(options_json_str)
         if not isinstance(llm_options_dict, dict):
-            raise ValueError("LLM options, if provided, must be a valid JSON dictionary string.")
+            raise ValueError("LLM options must be a valid JSON dictionary string.")
     except (json.JSONDecodeError, ValueError) as e:
-        # Utiliser app.console et escape pour afficher l'erreur
-        from rich.markup import escape # Importer escape localement si pas déjà global
-        app.console.print(f"[[error]Invalid LLM options JSON string[/]]: {escape(str(e))}"); return
+        from rich.markup import escape
+        app.console.print(f"[[error]Invalid LLM options JSON string[/]]: {escape(str(e))}")
+        return
 
-    messages_for_llm_chat = [{"role": "user", "content": prompt_str}]
+    # On s'assure que le streaming est désactivé pour ce test
+    llm_options_dict["stream"] = False 
     
-    # stream_llm_chat_to_console s'occupera de ensure_connection via l'instance app
-    await stream_llm_chat_to_console(
-        app=app, # Passer l'instance de ShellApp
-        # console=app.console, # <<< LIGNE SUPPRIMÉE, car app est passé
-        messages=messages_for_llm_chat,
-        llm_options=llm_options_dict
-    )
+    request_data = {
+        "messages": [{"role": "user", "content": prompt_str}],
+        "options": llm_options_dict
+    }
+    params_to_send = [request_data]
+
+    app.console.print(Text("Assistant: ", style="bold blue"), end="")
+    
+    # On utilise la méthode d'appel simple qui attend une réponse complète
+    response = await app.send_mcp_request(None, "mcp.llm.chat", params_to_send)
+    
+    # On extrait le contenu de la réponse et on l'affiche
+    # _format_and_print_mcp_response est trop générique, on fait un affichage custom
+    if response and "result" in response:
+        result = response["result"]
+        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        app.console.print(content)
+    elif response and "error" in response:
+        err = response["error"]
+        app.console.print(f"\n[[error]LLM Error (Code {err.get('code')})[/]]: {err.get('message')}")
+    else:
+        app.console.print("\n[[error]An unknown error occurred.[/]]")
+# ====================================================================
+# == FIN DE LA MODIFICATION                                       ==
+# ====================================================================
