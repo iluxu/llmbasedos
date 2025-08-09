@@ -1,19 +1,24 @@
 version: '3.8'
 
 services:
-  llmbasedos_paas:
+  paas: # <--- NOM SIMPLIFIÉ
     build:
       context: .
       dockerfile: Dockerfile.dev
       args:
-        - DOCKER_GID=999 # <--- REMPLACEZ 998 PAR LE NOMBRE OBTENU
-    container_name: llmbasedos_dev
+        - DOCKER_GID=999
+    container_name: llmbasedos_dev # Le nom du conteneur peut rester le même
     volumes:
       - ./llmbasedos_src:/opt/app/llmbasedos_src:rw
-    command: python llmbasedos_src/servers/llm_router/server.py
+      - ./supervisord.conf:/etc/supervisor/conf.d/llmbasedos.conf:ro
+      - ./entrypoint.sh:/opt/app/entrypoint.sh:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data:rw
     depends_on:
       - ollama
       - redis
+    networks:
+      - llmbasedos-net
     environment:
       REDIS_HOST: redis
       REDIS_PASSWORD: helloworld
@@ -29,8 +34,10 @@ services:
     command: redis-server --requirepass helloworld
     ports:
       - "6379:6379"
+    networks:
+      - llmbasedos-net
 
-  ollama:   # ✅ now inside 'services'
+  ollama:
     image: ollama/ollama:latest
     container_name: llmbasedos_ollama
     entrypoint: ["ollama", "serve"]
@@ -38,6 +45,12 @@ services:
       - "11434:11434"
     volumes:
       - ollama_models:/root/.ollama
+    networks:
+      - llmbasedos-net
 
 volumes:
   ollama_models:
+
+networks:
+  llmbasedos-net:
+    driver: bridge

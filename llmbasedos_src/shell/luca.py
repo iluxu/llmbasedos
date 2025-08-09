@@ -32,7 +32,7 @@ from . import builtin_cmds
 
 # --- Configuration du Shell, Logging, Console Rich ---
 SHELL_HISTORY_FILE = Path(os.path.expanduser("~/.llmbasedos_shell_history"))
-GATEWAY_WS_URL_CONF = os.getenv("LLMBDO_GATEWAY_WS_URL", "ws://localhost:8000/ws")
+GATEWAY_WS_URL_CONF = os.getenv("LLMBDO_GATEWAY_WS_URL", "ws://paas:8000/ws")
 
 LOG_LEVEL_STR_CONF = os.getenv("LLMBDO_SHELL_LOG_LEVEL", "INFO").upper()
 LOG_FORMAT_CONF = os.getenv("LLMBDO_SHELL_LOG_FORMAT", "simple")

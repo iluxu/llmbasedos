@@ -1,5 +1,6 @@
 redis
-chromadb-client
-sentence-transformers
 httpx
+
+
+
 
