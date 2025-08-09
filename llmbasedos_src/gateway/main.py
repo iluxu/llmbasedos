@@ -6,6 +6,8 @@ import logging.config
 from pathlib import Path
 import os
 import signal 
+# En haut du fichier, avec les autres imports de fastapi
+from fastapi.middleware.cors import CORSMiddleware
 import uuid # <-- AJOUTÉ
 from typing import Any, Dict, List, Optional, AsyncGenerator, Set
 
@@ -230,6 +232,15 @@ app = FastAPI(
     description="Central router for Model Context Protocol requests.",
     version="0.1.7",
     lifespan=lifespan_manager
+)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Autorise toutes les origines (simple pour le dev)
+    allow_credentials=True,
+    allow_methods=["*"], # Autorise toutes les méthodes (GET, POST, etc.)
+    allow_headers=["*"], # Autorise tous les headers
 )
 
 # ====================================================================

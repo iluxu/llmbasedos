@@ -22,7 +22,6 @@ services:
     environment:
       REDIS_HOST: redis
       REDIS_PASSWORD: helloworld
-      DEV_MODE: "true"
       LOCAL_LLM: "gemma:2b"
     ports:
       - "8000:8000"
