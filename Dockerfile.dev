@@ -28,6 +28,12 @@ RUN --mount=type=cache,target=/root/.cache/pip pip wheel --wheel-dir /tmp/wheels
 COPY llmbasedos_src/shell/requirements.txt /tmp/reqs/shell.txt
 RUN --mount=type=cache,target=/root/.cache/pip pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/shell.txt
 
+# --- BUILDER: fs ---
+COPY llmbasedos_src/servers/fs/requirements.txt /tmp/reqs/fs.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/fs.txt
+
+
 # =========================================================
 # == STAGE 2: RUNTIME - Lightweight final image
 # =========================================================
@@ -58,6 +64,12 @@ RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/memobase.txt
 
 COPY llmbasedos_src/shell/requirements.txt /tmp/reqs/shell.txt
 RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/shell.txt
+
+# --- RUNTIME: fs ---
+COPY llmbasedos_src/servers/fs/requirements.txt /tmp/reqs/fs.txt
+RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/fs.txt
+
+
 
 RUN rm -rf /tmp/reqs /tmp/wheels
 

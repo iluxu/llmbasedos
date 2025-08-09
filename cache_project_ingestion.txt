@@ -1,4 +1,4 @@
-# INGESTION DU PROJET LLMBASEDOS (Racine: /home/iluxu/llmbasedos/llmbasedos)
+# INGESTION DU PROJET LLMBASEDOS (Racine: /home/iluxu/pepite/llmbasedos)
 ==================================================
 
 Répertoire: ./
@@ -7,16 +7,14 @@ Répertoire: ./
   Fichier: .gitignore
 
   Fichier: Dockerfile
-    --- Début Contenu (utf-8) ---
+    --- Début Contenu (ascii) ---
     | # syntax=docker/dockerfile:1.6
     | 
-    | # ==============================================================================
-    | # == STAGE 1 : BUILDER - Compile les dépendances en "wheels"
-    | # ==============================================================================
-    | FROM python:3.10-bullseye AS builder
-    | LABEL maintainer="Luca Mucciaccio <mucciaccioluca@gmail.com>"
-    | LABEL stage="builder"
-    | 
+    | # =========================================================
+    | # == STAGE 1: BUILDER - Build Python wheels once
+    | # =========================================================
+    | FROM python:3.10-slim AS builder
+    | LABEL stage=builder
     | ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     |     PIP_NO_CACHE_DIR=1 \
     |     PYTHONUNBUFFERED=1 \
@@ -24,165 +22,81 @@ Répertoire: ./
     | 
     | WORKDIR ${APP_ROOT_DIR}
     | 
-    | # --- Couche 1 : Dépendances système de base (ne changent presque jamais) ---
-    | RUN apt-get update && \
-    |     apt-get install -y --no-install-recommends \
+    | # Install minimal system deps for Python packages
+    | RUN apt-get update && apt-get install -y --no-install-recommends \
+    |     build-essential \
+    |     python3-dev \
     |     curl \
-    |     docker.io \
     |     libmagic1 \
     |     && apt-get clean && rm -rf /var/lib/apt/lists/*
     | 
-    | # --- Couche 2 : Dépendances de build (ne changent presque jamais) ---
-    | RUN apt-get update && \
-    |     apt-get install -y --no-install-recommends \
-    |     build-essential \
-    |     python3-dev \
-    |     && apt-get clean && rm -rf /var/lib/apt/lists/*
-    | 
-    | # --- Couche 3...N : Dépendances Python, service par service (maximise le cache) ---
-    | # Chaque paire COPY/RUN crée une couche distincte. Si un requirements.txt ne change pas,
-    | # sa couche est tirée du cache, et les builds suivants sont beaucoup plus rapides.
-    | 
-    | # Dépendances racine
-    | COPY llmbasedos_src/requirements.txt /tmp/reqs/root.txt
+    | # --- Base shared dependencies (common to all services) ---
+    | COPY llmbasedos_src/requirements.txt /tmp/reqs/base.txt
     | RUN --mount=type=cache,target=/root/.cache/pip \
-    |     pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/root.txt
+    |     pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/base.txt
     | 
-    | # Dépendances du Gateway
+    | # --- Gateway ---
     | COPY llmbasedos_src/gateway/requirements.txt /tmp/reqs/gateway.txt
     | RUN --mount=type=cache,target=/root/.cache/pip \
     |     pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/gateway.txt
     | 
-    | # Dépendances des services (ordre alphabétique pour la clarté)
-    | COPY llmbasedos_src/servers/arc_manager/requirements.txt /tmp/reqs/arc_manager.txt
-    | RUN --mount=type=cache,target=/root/.cache/pip \
-    |     pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/arc_manager.txt
-    | 
-    | COPY llmbasedos_src/servers/browser/requirements.txt /tmp/reqs/browser.txt
-    | RUN --mount=type=cache,target=/root/.cache/pip \
-    |     pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/browser.txt
-    | 
-    | COPY llmbasedos_src/servers/crypto_data/requirements.txt /tmp/reqs/crypto_data.txt
-    | RUN --mount=type=cache,target=/root/.cache/pip \
-    |     pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/crypto_data.txt
-    | 
-    | COPY llmbasedos_src/servers/executor/requirements.txt /tmp/reqs/executor.txt
-    | RUN --mount=type=cache,target=/root/.cache/pip \
-    |     pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/executor.txt
-    | 
-    | COPY llmbasedos_src/servers/football_data/requirements.txt /tmp/reqs/football_data.txt
-    | RUN --mount=type=cache,target=/root/.cache/pip \
-    |     pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/football_data.txt
-    | 
-    | COPY llmbasedos_src/servers/fs/requirements.txt /tmp/reqs/fs.txt
-    | RUN --mount=type=cache,target=/root/.cache/pip \
-    |     pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/fs.txt
-    | 
-    | COPY llmbasedos_src/servers/horse_racing_data/requirements.txt /tmp/reqs/horse_racing_data.txt
-    | RUN --mount=type=cache,target=/root/.cache/pip \
-    |     pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/horse_racing_data.txt
-    | 
+    | # --- LLM Router ---
     | COPY llmbasedos_src/servers/llm_router/requirements.txt /tmp/reqs/llm_router.txt
     | RUN --mount=type=cache,target=/root/.cache/pip \
     |     pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/llm_router.txt
     | 
-    | COPY llmbasedos_src/servers/mail/requirements.txt /tmp/reqs/mail.txt
-    | RUN --mount=type=cache,target=/root/.cache/pip \
-    |     pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/mail.txt
-    | 
+    | # --- Memobase ---
     | COPY llmbasedos_src/servers/memobase/requirements.txt /tmp/reqs/memobase.txt
     | RUN --mount=type=cache,target=/root/.cache/pip \
     |     pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/memobase.txt
     | 
-    | COPY llmbasedos_src/servers/orchestrator/requirements.txt /tmp/reqs/orchestrator.txt
-    | RUN --mount=type=cache,target=/root/.cache/pip \
-    |     pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/orchestrator.txt
     | 
-    | # Dépendances du Shell
-    | COPY llmbasedos_src/shell/requirements.txt /tmp/reqs/shell.txt
-    | RUN --mount=type=cache,target=/root/.cache/pip \
-    |     pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/shell.txt
-    | 
-    | 
-    | # ==============================================================================
-    | # == STAGE 2 : RUNNER - Construit l'image finale légère
-    | # ==============================================================================
-    | FROM python:3.10-bullseye
-    | LABEL maintainer="Luca Mucciaccio <mucciaccioluca@gmail.com>"
-    | LABEL description="llmbasedos - Cognitive Agent PaaS"
+    | # =========================================================
+    | # == STAGE 2: RUNTIME - Lightweight final image
+    | # =========================================================
+    | FROM python:3.10-slim
+    | LABEL description="LLMbasedOS DEV image - Gateway, Router, Memobase only"
     | 
     | ENV PYTHONUNBUFFERED=1 \
     |     PYTHONDONTWRITEBYTECODE=1 \
-    |     APP_ROOT_DIR=/opt/app
+    |     APP_ROOT_DIR=/opt/app \
+    |     HF_HOME=/data/hf_cache
     | 
     | WORKDIR ${APP_ROOT_DIR}
     | 
-    | # Dépendances runtime seulement
-    | RUN apt-get update && \
-    |     apt-get install -y --no-install-recommends \
+    | # Minimal runtime deps
+    | RUN apt-get update && apt-get install -y --no-install-recommends \
     |     supervisor \
     |     curl \
-    |     docker.io \
     |     libmagic1 \
     |     && apt-get clean && rm -rf /var/lib/apt/lists/*
     | 
-    | # Copie des wheels précompilées depuis le builder
+    | # Copy wheels from builder
     | COPY --from=builder /tmp/wheels /tmp/wheels
     | 
-    | # Installation à partir des wheels → ultra rapide, pas de compilation, service par service.
-    | # Même principe : chaque RUN est une couche cachée.
-    | COPY llmbasedos_src/requirements.txt /tmp/reqs/root.txt
-    | RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/root.txt
+    | # Install only what's needed
+    | COPY llmbasedos_src/requirements.txt /tmp/reqs/base.txt
+    | RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/base.txt
     | 
     | COPY llmbasedos_src/gateway/requirements.txt /tmp/reqs/gateway.txt
     | RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/gateway.txt
     | 
-    | COPY llmbasedos_src/servers/arc_manager/requirements.txt /tmp/reqs/arc_manager.txt
-    | RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/arc_manager.txt
-    | 
-    | COPY llmbasedos_src/servers/browser/requirements.txt /tmp/reqs/browser.txt
-    | RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/browser.txt
-    | 
-    | COPY llmbasedos_src/servers/crypto_data/requirements.txt /tmp/reqs/crypto_data.txt
-    | RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/crypto_data.txt
-    | 
-    | COPY llmbasedos_src/servers/executor/requirements.txt /tmp/reqs/executor.txt
-    | RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/executor.txt
-    | 
-    | COPY llmbasedos_src/servers/football_data/requirements.txt /tmp/reqs/football_data.txt
-    | RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/football_data.txt
-    | 
-    | COPY llmbasedos_src/servers/fs/requirements.txt /tmp/reqs/fs.txt
-    | RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/fs.txt
-    | 
-    | COPY llmbasedos_src/servers/horse_racing_data/requirements.txt /tmp/reqs/horse_racing_data.txt
-    | RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/horse_racing_data.txt
-    | 
     | COPY llmbasedos_src/servers/llm_router/requirements.txt /tmp/reqs/llm_router.txt
     | RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/llm_router.txt
-    | 
-    | COPY llmbasedos_src/servers/mail/requirements.txt /tmp/reqs/mail.txt
-    | RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/mail.txt
     | 
     | COPY llmbasedos_src/servers/memobase/requirements.txt /tmp/reqs/memobase.txt
     | RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/memobase.txt
     | 
-    | COPY llmbasedos_src/servers/orchestrator/requirements.txt /tmp/reqs/orchestrator.txt
-    | RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/orchestrator.txt
-    | 
-    | COPY llmbasedos_src/shell/requirements.txt /tmp/reqs/shell.txt
-    | RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/shell.txt
-    | 
-    | # --- Nettoyage final des dépendances ---
+    | # Cleanup
     | RUN rm -rf /tmp/reqs /tmp/wheels
     | 
-    | # --- Création de l'utilisateur et des permissions ---
+    | # Create app user (no docker group here)
     | ARG APP_USER=llmuser
-    | RUN useradd -ms /bin/bash ${APP_USER} && usermod -aG docker ${APP_USER} && \
-    |     mkdir -p /run/mcp /var/log/supervisor /data && \
-    |     chown -R ${APP_USER}:${APP_USER} ${APP_ROOT_DIR}
+    | RUN useradd -ms /bin/bash ${APP_USER} \
+    |     && mkdir -p /run/mcp /var/log/supervisor /data \
+    |     && chown -R ${APP_USER}:${APP_USER} ${APP_ROOT_DIR} /data /run/mcp
     | 
-    | # --- Copie du code applicatif (à la toute fin pour ne pas invalider le cache) ---
+    | # Copy application
     | COPY ./llmbasedos_src ${APP_ROOT_DIR}/llmbasedos_src
     | COPY ./supervisord.conf /etc/supervisor/conf.d/llmbasedos.conf
     | COPY ./entrypoint.sh /opt/app/entrypoint.sh
@@ -193,6 +107,10 @@ Répertoire: ./
     | ENTRYPOINT ["/opt/app/entrypoint.sh"]
     | CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/conf.d/llmbasedos.conf"]
     --- Fin Contenu ---
+
+  Fichier: Dockerfile.dev
+
+  Fichier: Dockerfile.old
 
   Fichier: README.md
     --- Début Contenu (MacRoman) ---
@@ -471,6 +389,67 @@ Répertoire: ./
     |     mcp_bridge.run(transport='stdio')
     --- Fin Contenu ---
 
+  Fichier: docker-compose.dev.yml
+    --- Début Contenu (utf-8) ---
+    | version: '3.8'
+    | 
+    | services:
+    |   paas: # <--- NOM SIMPLIFIÉ
+    |     build:
+    |       context: .
+    |       dockerfile: Dockerfile.dev
+    |       args:
+    |         - DOCKER_GID=999
+    |     container_name: llmbasedos_dev # Le nom du conteneur peut rester le même
+    |     volumes:
+    |       - ./llmbasedos_src:/opt/app/llmbasedos_src:rw
+    |       - ./supervisord.conf:/etc/supervisor/conf.d/llmbasedos.conf:ro
+    |       - ./entrypoint.sh:/opt/app/entrypoint.sh:ro
+    |       - /var/run/docker.sock:/var/run/docker.sock
+    |       - ./data:/data:rw
+    |     depends_on:
+    |       - ollama
+    |       - redis
+    |     networks:
+    |       - llmbasedos-net
+    |     environment:
+    |       REDIS_HOST: redis
+    |       REDIS_PASSWORD: helloworld
+    |       LOCAL_LLM: "gemma:2b"
+    |     ports:
+    |       - "8000:8000"
+    |     tty: true
+    | 
+    |   redis:
+    |     image: redis:7-alpine
+    |     container_name: llmbasedos_redis
+    |     command: redis-server --requirepass helloworld
+    |     ports:
+    |       - "6379:6379"
+    |     networks:
+    |       - llmbasedos-net
+    | 
+    |   ollama:
+    |     image: ollama/ollama:latest
+    |     container_name: llmbasedos_ollama
+    |     entrypoint: ["ollama", "serve"]
+    |     ports:
+    |       - "11434:11434"
+    |     volumes:
+    |       - ollama_models:/root/.ollama
+    |     networks:
+    |       - llmbasedos-net
+    | 
+    | volumes:
+    |   ollama_models:
+    | 
+    | networks:
+    |   llmbasedos-net:
+    |     driver: bridge
+    --- Fin Contenu ---
+
+  Fichier: docker-compose.override.yml 
+
   Fichier: docker-compose.yml
     --- Début Contenu (utf-8) ---
     | # Fichier: docker-compose.yml
@@ -485,11 +464,15 @@ Répertoire: ./
     |       - llmbasedos-net
     |     tty: true
     |     volumes:
+    |       - ./app:/app:cached
+    |        
     |       - ./llmbasedos_src:/opt/app/llmbasedos_src:rw
-    |       - /var/run/docker.sock:/var/run/docker.sock
+    |       - ./supervisord.conf:/etc/supervisor/conf.d/llmbasedos.conf:ro
+    |       - /var/run/docker.sock:/var/run/docker.sock   
     |       - ./config:/etc/llmbasedos:ro
     |       - ./data:/data:rw
     |       # NOTE: Le supervisord.conf est maintenant copié dans le Dockerfile, pas besoin de le monter ici.
+    |     user: "${UID}:${GID}" 
     |     env_file:
     |       - .env # Charge toutes les variables depuis le fichier .env
     |     environment:
@@ -829,7 +812,6 @@ Répertoire: ./
   Répertoire: ./llmbasedos_src
     Fichier: __init__.py
       (Fichier vide)
-
     Fichier: archmanager.sh
       --- Début Contenu (utf-8) ---
       | cat > create_arc_manager.sh << 'EOF'
@@ -867,6 +849,142 @@ Répertoire: ./
       |         },
       |         {
       --- Fin Contenu ---
+
+    Répertoire: ./llmbasedos_src/arcs
+
+      Répertoire: ./llmbasedos_src/arcs/divista-alpha
+        Fichier: main_agent.py
+          --- Début Contenu (Windows-1254) ---
+          | # main_agent.py - Divista Alpha
+          | import time
+          | import json
+          | from llmbasedos_src.scripts.email_app import mcp_call  # notre wrapper JSON-RPC
+          | 
+          | # ID fixe pour test â€” en prod tu passeras via un mapping ou appel API
+          | USER_ID = "elu_test_001"
+          | 
+          | def run():
+          |     print("ğŸ¤– Divistaâ€‘Alpha en ligne...")
+          |     print(f"ğŸ�¯ Cible : {USER_ID}")
+          | 
+          |     # 1ï¸�âƒ£ RÃ©cupÃ©rer historique des messages
+          |     try:
+          |         history = mcp_call("mcp.onlyvue.get_chat_history", [USER_ID])
+          |         print(f"ğŸ“œ Historique pour {USER_ID} : {json.dumps(history, indent=2, ensure_ascii=False)}")
+          |     except Exception as e:
+          |         print(f"â�Œ Erreur rÃ©cupÃ©ration historique : {e}")
+          |         return
+          | 
+          |     # 2ï¸�âƒ£ Demander prÃ©diction booking
+          |     try:
+          |         booking = mcp_call("mcp.predictor.booking_probability", [USER_ID])
+          |         prob = booking.get("probability", 0)
+          |         print(f"ğŸ“Š ProbabilitÃ© booking : {prob*100:.0f}%")
+          |     except Exception as e:
+          |         print(f"â�Œ Erreur prÃ©diction booking : {e}")
+          |         return
+          | 
+          |     # 3ï¸�âƒ£ Logique rÃ©active
+          |     try:
+          |         if prob > 0.8:
+          |             # Message FOMO
+          |             fomo_msg = "Il ne reste qu'une place ce soirâ€¦ veux-tu la tienne â�¤ï¸� ?"
+          |             res = mcp_call("mcp.onlyvue.send_message", [USER_ID, fomo_msg])
+          |             print(f"ğŸš€ Message FOMO envoyÃ© : {res}")
+          |         else:
+          |             # Message doux
+          |             warm_msg = "Jâ€™ai pensÃ© Ã  toi toute la journÃ©eâ€¦ ğŸ˜˜"
+          |             res = mcp_call("mcp.onlyvue.send_message", [USER_ID, warm_msg])
+          |             print(f"ğŸ’¬ Message douceur envoyÃ© : {res}")
+          |     except Exception as e:
+          |         print(f"â�Œ Erreur envoi message : {e}")
+          | 
+          | if __name__ == "__main__":
+          |     run()
+          --- Fin Contenu ---
+
+        Répertoire: ./llmbasedos_src/arcs/divista-alpha/prompts
+          Fichier: persona.txt
+
+          Fichier: reasoning_rules.txt
+
+      Répertoire: ./llmbasedos_src/arcs/synaps_confidential_demo
+        Fichier: config.yaml
+          --- Début Contenu (ascii) ---
+          | name: synaps_confidential_demo
+          | description: >
+          |   Demo Arc for Petar (Synaps Network Confidential Analysis)
+          |   Runs locally on Gemma:2b via LLM Router + Ollama.
+          | version: 1.0
+          | entrypoint: main_agent.py
+          --- Fin Contenu ---
+
+        Fichier: context.txt
+
+        Fichier: main_agent.py
+          --- Début Contenu (MacRoman) ---
+          | import os
+          | import json
+          | import requests
+          | 
+          | LLM_ROUTER_URL = "http://localhost:8000/mcp.llm.route"   # Paas dev
+          | MODEL = os.getenv("LOCAL_LLM", "gemma:2b")
+          | 
+          | # === Charge √©ventuellement un contexte confidentiel depuis un fichier local ===
+          | context_path = os.path.join(os.path.dirname(__file__), "context.txt")
+          | if os.path.exists(context_path):
+          |     with open(context_path, "r") as f:
+          |         CONTEXT_DATA = f.read().strip()
+          | else:
+          |     CONTEXT_DATA = "Synaps Network is an independent research network focused on environment, economics, and technology."
+          | 
+          | # === Prompts pour les 3 effets ===
+          | styles = {
+          |     "SWOT Analysis": f"Using ONLY the following confidential context:\n\n{CONTEXT_DATA}\n\nGive me a concise SWOT analysis with exactly:\n- 3 strengths\n- 3 weaknesses\n- 3 opportunities",
+          |     "Executive Statements": f"Using ONLY the following confidential context:\n\n{CONTEXT_DATA}\n\nGive me exactly 3 short executive strategic statements for a closed board meeting.",
+          |     "Visionary Storytelling": f"Using ONLY the following confidential context:\n\n{CONTEXT_DATA}\n\nWrite exactly 3 short visionary sentences describing Synaps Network for internal morale boosting."
+          | }
+          | 
+          | def send_to_llm(prompt):
+          |     """Envoi une requ√™te JSON-RPC vers le LLM Router."""
+          |     payload = {
+          |         "jsonrpc": "2.0",
+          |         "id": 1,
+          |         "method": "mcp.llm.route",
+          |         "params": [
+          |             {
+          |                 "messages": [
+          |                     {"role": "user", "content": prompt}
+          |                 ],
+          |                 "options": {"model": MODEL}
+          |             }
+          |         ]
+          |     }
+          |     try:
+          |         r = requests.post(LLM_ROUTER_URL, json=payload, timeout=600)
+          |         r.raise_for_status()
+          |         data = r.json()
+          |         if "error" in data:
+          |             return f"‚ùå LLM Error: {data['error']}"
+          |         # Selon format OpenAI ou Ollama local
+          |         if isinstance(data.get("result"), dict):
+          |             msg = data["result"].get("message", {}).get("content", None)
+          |             if msg:
+          |                 return msg
+          |         return json.dumps(data, indent=2)
+          |     except Exception as e:
+          |         return f"‚ùå Request failed: {str(e)}"
+          | 
+          | if __name__ == "__main__":
+          |     print(f"üöÄ Sending prompt to LLM Router (LOCAL mode, model={MODEL})...\n")
+          | 
+          |     for section, prompt in styles.items():
+          |         print(f"\n==============================")
+          |         print(f"   {section.upper()}")
+          |         print(f"==============================\n")
+          |         answer = send_to_llm(prompt)
+          |         print(answer)
+          --- Fin Contenu ---
 
     Fichier: common_utils.py
       --- Début Contenu (utf-8) ---
@@ -1804,6 +1922,8 @@ Répertoire: ./
         | from pathlib import Path
         | import os
         | import signal 
+        | # En haut du fichier, avec les autres imports de fastapi
+        | from fastapi.middleware.cors import CORSMiddleware
         | import uuid # <-- AJOUTÉ
         | from typing import Any, Dict, List, Optional, AsyncGenerator, Set
         | 
@@ -2028,6 +2148,15 @@ Répertoire: ./
         |     description="Central router for Model Context Protocol requests.",
         |     version="0.1.7",
         |     lifespan=lifespan_manager
+        | )
+        | 
+        | 
+        | app.add_middleware(
+        |     CORSMiddleware,
+        |     allow_origins=["*"], # Autorise toutes les origines (simple pour le dev)
+        |     allow_credentials=True,
+        |     allow_methods=["*"], # Autorise toutes les méthodes (GET, POST, etc.)
+        |     allow_headers=["*"], # Autorise tous les headers
         | )
         | 
         | # ====================================================================
@@ -3602,6 +3731,136 @@ Répertoire: ./
           |     asyncio.run(browser_server.start())
           --- Fin Contenu ---
 
+      Répertoire: ./llmbasedos_src/servers/canva
+        Fichier: caps.json
+          --- Début Contenu (ascii) ---
+          | {
+          |     "service_name": "canva",
+          |     "description": "A bridge to the Canva Dev MCP server for AI-powered development assistance.",
+          |     "version": "0.1.0",
+          |     "capabilities": [
+          |         {
+          |             "method": "mcp.canva.ask",
+          |             "description": "Sends a query to the Canva Dev MCP server. Include keywords like 'App UI Kit' or 'Apps SDK'.",
+          |             "params_schema": {
+          |                 "type": "array",
+          |                 "prefixItems": [
+          |                     { "type": "string", "description": "The natural language query for the Canva assistant." }
+          |                 ],
+          |                 "minItems": 1,
+          |                 "maxItems": 1
+          |             }
+          |         }
+          |     ]
+          | }
+          --- Fin Contenu ---
+
+        Fichier: requirements.txt
+
+        Fichier: server.py
+          --- Début Contenu (utf-8) ---
+          | # Fichier: llmbasedos_src/servers/canva/server.py
+          | import asyncio
+          | import json
+          | import uuid
+          | from pathlib import Path
+          | from llmbasedos_src.mcp_server_framework import MCPServer
+          | 
+          | SERVER_NAME = "canva"
+          | CAPS_FILE_PATH = str(Path(__file__).parent / "caps.json")
+          | canva_server = MCPServer(SERVER_NAME, CAPS_FILE_PATH)
+          | 
+          | # Variables globales pour gérer le sous-processus Canva
+          | canva_process = None
+          | canva_reader = None
+          | canva_writer = None
+          | 
+          | async def read_from_canva_mcp():
+          |     """Tâche de fond pour lire les réponses du serveur Canva."""
+          |     while canva_reader and not canva_reader.at_eof():
+          |         try:
+          |             line = await canva_reader.readline()
+          |             if line:
+          |                 response_str = line.decode().strip()
+          |                 canva_server.logger.info(f"CANVA_MCP_RECV: {response_str}")
+          |                 # Ici, il faudrait une logique pour router la réponse au bon appelant,
+          |                 # mais pour une démo simple, on peut juste logguer.
+          |         except Exception as e:
+          |             canva_server.logger.error(f"Error reading from Canva MCP: {e}")
+          |             break
+          | 
+          | @canva_server.set_startup_hook
+          | async def on_startup(server: MCPServer):
+          |     """Au démarrage, lance le serveur MCP de Canva en sous-processus."""
+          |     global canva_process, canva_reader, canva_writer
+          |     command = "npx"
+          |     args = ["-y", "@canva/cli@latest", "mcp"]
+          |     
+          |     try:
+          |         server.logger.info(f"Starting Canva MCP server with command: {command} {' '.join(args)}")
+          |         canva_process = await asyncio.create_subprocess_exec(
+          |             command,
+          |             *args,
+          |             stdin=asyncio.subprocess.PIPE,
+          |             stdout=asyncio.subprocess.PIPE,
+          |             stderr=asyncio.subprocess.PIPE
+          |         )
+          |         canva_reader = canva_process.stdout
+          |         canva_writer = canva_process.stdin
+          |         server.logger.info(f"Canva MCP server started with PID: {canva_process.pid}")
+          |         
+          |         # Lancer une tâche pour écouter les logs de Canva
+          |         asyncio.create_task(read_from_canva_mcp())
+          | 
+          |     except Exception as e:
+          |         server.logger.critical(f"Failed to start Canva MCP server: {e}", exc_info=True)
+          |         canva_process = None
+          | 
+          | @canva_server.set_shutdown_hook
+          | async def on_shutdown(server: MCPServer):
+          |     """À l'arrêt, termine proprement le sous-processus Canva."""
+          |     if canva_process and canva_process.returncode is None:
+          |         server.logger.info(f"Stopping Canva MCP server (PID: {canva_process.pid})...")
+          |         canva_process.terminate()
+          |         await canva_process.wait()
+          |         server.logger.info("Canva MCP server stopped.")
+          | 
+          | @canva_server.register_method("mcp.canva.ask")
+          | async def handle_canva_ask(server: MCPServer, request_id, params: list):
+          |     if not canva_writer:
+          |         raise RuntimeError("Canva MCP server is not running or not ready.")
+          |         
+          |     query = params[0]
+          |     
+          |     # Le protocole MCP est basé sur JSON-RPC. On doit construire une requête valide.
+          |     # Pour une simple question, on peut l'encapsuler dans un format que le serveur Canva comprendra.
+          |     # Souvent, c'est une requête `textDocument/didChange` ou similaire.
+          |     # Pour une démo, on envoie une requête JSON-RPC simple.
+          |     mcp_request = {
+          |         "jsonrpc": "2.0",
+          |         "method": "$/invokeTool", # Méthode hypothétique pour invoquer un outil
+          |         "params": {
+          |             "toolName": "canva-dev", # Nom de l'outil
+          |             "prompt": query
+          |         },
+          |         "id": f"canva-bridge-{uuid.uuid4().hex}"
+          |     }
+          | 
+          |     request_str = json.dumps(mcp_request) + "\n"
+          |     server.logger.info(f"CANVA_MCP_SEND: {request_str.strip()}")
+          |     canva_writer.write(request_str.encode())
+          |     await canva_writer.drain()
+          |     
+          |     # ATTENTION: La réponse est asynchrone. Ce handler ne peut pas attendre
+          |     # directement la réponse. Il faudrait un système de callback ou de future.
+          |     # Pour un MVP, on retourne juste un statut d'envoi.
+          |     return {"status": "Query sent to Canva MCP server. Check logs for response."}
+          | 
+          | 
+          | if __name__ == "__main__":
+          |     asyncio.run(canva_server.start())
+          --- Fin Contenu ---
+
       Répertoire: ./llmbasedos_src/servers/crypto_data
         Fichier: requirements.txt
 
@@ -4159,16 +4418,15 @@ Répertoire: ./
 
         Fichier: server.py
           --- Début Contenu (utf-8) ---
-          | # llmbasedos_src/servers/llm_router/server.py
           | import asyncio
           | import os
           | import json
           | import hashlib
           | from pathlib import Path
           | import redis
-          | import chromadb
-          | from sentence_transformers import SentenceTransformer
           | import httpx
+          | # from sentence_transformers import SentenceTransformer  # Not used in local mode yet
+          | # import chromadb  # Not used in local mode yet
           | 
           | from llmbasedos_src.mcp_server_framework import MCPServer
           | 
@@ -4177,79 +4435,158 @@ Répertoire: ./
           | CAPS_FILE_PATH = str(Path(__file__).parent / "caps.json")
           | llm_router_server = MCPServer(SERVER_NAME, CAPS_FILE_PATH)
           | 
-          | # --- Variables d'Environnement ---
+          | # Env Vars
           | OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+          | OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
+          | DEFAULT_MODEL = os.getenv("LOCAL_LLM", "gemma:2b")
           | REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-          | CHROMA_HOST = os.getenv("CHROMA_HOST", "chroma")
+          | REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
+          | CACHE_EXPIRATION_SECONDS = 3600 * 24
           | 
-          | # --- Classe d'Intelligence (Cache uniquement) ---
+          | # --- Cache Manager ---
           | class CacheManager:
           |     def __init__(self, server: MCPServer):
           |         self.server = server
           |         self.logger = server.logger
-          |         self.redis_client = None
-          |         self.chroma_client = None
           |         try:
-          |             self.redis_client = redis.Redis(host=REDIS_HOST, port=6379, db=0, decode_responses=True)
+          |             self.redis_client = redis.Redis(
+          |                 host=REDIS_HOST,
+          |                 port=6379,
+          |                 db=0,
+          |                 password=REDIS_PASSWORD,
+          |                 decode_responses=True
+          |             )
           |             self.redis_client.ping()
-          |             self.logger.info("Successfully connected to Redis.")
+          |             self.logger.info("✅ Connected to Redis")
           |         except Exception as e:
-          |             self.logger.error(f"Failed to connect to Redis: {e}")
+          |             self.logger.error(f"Redis connection failed: {e}")
+          |             self.redis_client = None
           | 
+          |     def get_cached_response(self, key: str):
           |         try:
-          |             self.chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=8000)
-          |             self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-          |             self.collection = self.chroma_client.get_or_create_collection("llm_semantic_cache")
-          |             self.logger.info("Successfully connected to ChromaDB.")
+          |             if self.redis_client:
+          |                 data = self.redis_client.get(key)
+          |                 if data:
+          |                     self.logger.info(f"Cache HIT: {key}")
+          |                     return json.loads(data)
           |         except Exception as e:
-          |             self.logger.error(f"Failed to connect to ChromaDB: {e}")
-          |             self.chroma_client = None
+          |             self.logger.error(f"Redis GET error: {e}")
           | 
-          |     async def get_cached_response(self, request_key: str, prompt: str):
-          |         # ... (code du cache inchangé)
-          |         pass
+          |         self.logger.info(f"Cache MISS: {key}")
+          |         return None
           | 
-          |     def set_cache(self, request_key: str, prompt: str, response: dict):
-          |         # ... (code du cache inchangé)
-          |         pass
+          |     def set_cache(self, key: str, value: dict):
+          |         try:
+          |             if self.redis_client:
+          |                 self.redis_client.set(key, json.dumps(value), ex=CACHE_EXPIRATION_SECONDS)
+          |                 self.logger.info(f"Cache SET: {key}")
+          |         except Exception as e:
+          |             self.logger.error(f"Redis SET error: {e}")
           | 
-          | # --- Classe Provider OpenRouter ---
-          | class OpenRouterProvider:
-          |     # ... (code du provider inchangé)
-          |     pass
           | 
-          | # --- Initialisation ---
+          | # --- Ollama Provider (local mode) ---
+          | class OllamaProvider:
+          |     def __init__(self, server: MCPServer):
+          |         self.server = server
+          |         self.logger = server.logger
+          |         self.base_url = f"{OLLAMA_BASE_URL}/v1/chat/completions"  # URL inside Docker network
+          |         self.default_model = "gemma:2b"
+          | 
+          |     # Dans la classe OllamaProvider de llm_router/server.py
+          | 
+          |     async def execute_call(self, messages: list, options: dict):
+          |         model = options.get("model", DEFAULT_MODEL)
+          |         
+          |         # Le payload pour /v1/chat/completions est au format OpenAI
+          |         payload = {
+          |             "model": model,
+          |             "messages": messages,
+          |             "stream": False,
+          |             "options": {
+          |                 "temperature": options.get("temperature", 0.7),
+          |             }
+          |         }
+          |         
+          |         self.logger.info(f"Calling Ollama at {self.base_url} with model: {model}")
+          |         
+          |         async with httpx.AsyncClient(timeout=300.0) as client:
+          |             try:
+          |                 # On envoie directement le payload compatible OpenAI
+          |                 response = await client.post(self.base_url, json=payload)
+          |                 response.raise_for_status()
+          |                 
+          |                 # Pas besoin de traduire la réponse, elle est déjà au format OpenAI !
+          |                 return response.json()
+          |                 
+          |             except httpx.HTTPStatusError as e:
+          |                 error_text = e.response.text
+          |                 self.logger.error(f"Ollama API error: {e.response.status_code} - {error_text}")
+          |                 if "model not found" in error_text:
+          |                     raise RuntimeError(f"Ollama error: Model '{model}' not found. Please run 'docker exec llmbasedos_ollama ollama pull {model}'")
+          |                 raise RuntimeError(f"Ollama API Error: {e.response.status_code} - {error_text}")
+          |             except Exception as e:
+          |                 self.logger.error(f"Error calling Ollama: {e}", exc_info=True)
+          |                 raise RuntimeError(f"Network or other error calling Ollama: {str(e)}")
+          | 
+          | 
+          | # --- Choose Provider ---
+          | USE_LOCAL_OLLAMA = True
           | intelligence = CacheManager(llm_router_server)
-          | provider = OpenRouterProvider(llm_router_server) if OPENROUTER_API_KEY else None
+          | provider = OllamaProvider(llm_router_server) if USE_LOCAL_OLLAMA else None
           | 
-          | # --- Handler MCP ---
+          | 
+          | # --- Handler ---
           | @llm_router_server.register_method("mcp.llm.route")
           | async def handle_route_request(server: MCPServer, request_id, params: list):
           |     if not provider:
-          |         raise RuntimeError("LLM Router not configured: OPENROUTER_API_KEY missing.")
+          |         raise RuntimeError("No LLM provider available.")
           | 
           |     request_data = params[0]
           |     messages = request_data.get("messages", [])
           |     options = request_data.get("options", {})
           | 
-          |     # Logique de cache
-          |     prompt_for_cache = json.dumps(messages) + json.dumps(options)
-          |     request_key = hashlib.md5(prompt_for_cache.encode()).hexdigest()
-          |     
-          |     cached_response = await intelligence.get_cached_response(request_key, prompt_for_cache)
-          |     if cached_response:
-          |         return cached_response
+          |     if not messages:
+          |         raise ValueError("'messages' must not be empty")
           | 
-          |     # Appel LLM
+          |     # Cache key
+          |     cache_key_content = f"{options.get('model','auto')}:{json.dumps(messages)}"
+          |     cache_key = f"llmcache:{hashlib.md5(cache_key_content.encode()).hexdigest()}"
+          | 
+          |     cached = intelligence.get_cached_response(cache_key)
+          |     if cached:
+          |         return cached
+          | 
+          |     # Call and cache
           |     result = await provider.execute_call(messages, options)
-          | 
-          |     # Mise en cache
-          |     intelligence.set_cache(request_key, prompt_for_cache, result)
-          | 
+          |     intelligence.set_cache(cache_key, result)
           |     return result
           | 
+          | 
+          | # --- Entrypoint ---
           | if __name__ == "__main__":
-          |     asyncio.run(llm_router_server.start())
+          |     dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
+          | 
+          |     if dev_mode:
+          |         from fastapi import FastAPI
+          |         import uvicorn
+          | 
+          |         app = FastAPI()
+          | 
+          |         @app.post("/mcp.llm.route")
+          |         async def http_route(payload: dict):
+          |             result = await handle_route_request(
+          |                 llm_router_server,
+          |                 payload.get("id"),
+          |                 payload.get("params", [])
+          |             )
+          |             return {"jsonrpc": "2.0", "id": payload.get("id"), "result": result}
+          | 
+          |         uvicorn.run(app, host="0.0.0.0", port=8000)
+          | 
+          |     else:
+          |         asyncio.run(llm_router_server.start())
+          | 
+          | 
           --- Fin Contenu ---
 
       Répertoire: ./llmbasedos_src/servers/mail
@@ -4844,6 +5181,90 @@ Répertoire: ./
           |     asyncio.run(memobase_server.start())
           --- Fin Contenu ---
 
+      Répertoire: ./llmbasedos_src/servers/onlyvue
+        Fichier: caps.json
+          --- Début Contenu (ascii) ---
+          | {
+          |     "service_name": "onlyvue",
+          |     "description": "Connector to OnlyVue platform for chat and actions.",
+          |     "version": "0.1.0",
+          |     "capabilities": [
+          |       {
+          |         "method": "mcp.onlyvue.get_chat_history",
+          |         "description": "Gets recent chat history for a user.",
+          |         "params_schema": {
+          |           "type": "array",
+          |           "prefixItems": [{ "type": "string", "description": "User ID" }],
+          |           "minItems": 1,
+          |           "maxItems": 1,
+          |           "items": false
+          |         }
+          |       },
+          |       {
+          |         "method": "mcp.onlyvue.send_message",
+          |         "description": "Sends a message to a specific user.",
+          |         "params_schema": {
+          |           "type": "array",
+          |           "prefixItems": [
+          |             { "type": "string", "description": "User ID" },
+          |             { "type": "string", "description": "Message text" }
+          |           ],
+          |           "minItems": 2,
+          |           "maxItems": 2,
+          |           "items": false
+          |         }
+          |       }
+          |     ]
+          |   }
+          |   
+          --- Fin Contenu ---
+
+        Fichier: server.py
+          --- Début Contenu (MacRoman) ---
+          | # llmbasedos_src/servers/onlyvue/server.py
+          | import asyncio
+          | import os
+          | from pathlib import Path
+          | from typing import List, Dict, Any
+          | 
+          | from llmbasedos_src.mcp_server_framework import MCPServer
+          | 
+          | SERVER_NAME = "onlyvue"
+          | CAPS_FILE_PATH = str(Path(__file__).parent / "caps.json")
+          | onlyvue_server = MCPServer(SERVER_NAME, CAPS_FILE_PATH)
+          | 
+          | # En prod : mettre les vrais creds API
+          | ONLYVUE_API_URL = os.getenv("ONLYVUE_API_URL", "https://api.mock-onlyvue.local")
+          | ONLYVUE_API_KEY = os.getenv("ONLYVUE_API_KEY", "mock-key")
+          | 
+          | @onlyvue_server.register_method("mcp.onlyvue.get_chat_history")
+          | async def handle_get_chat_history(server: MCPServer, request_id, params: list):
+          |     """
+          |     params[0] = user_id (str)
+          |     Retourne : liste de messages {timestamp, from, text}
+          |     """
+          |     user_id = params[0]
+          |     server.logger.info(f"[DEV] Fetching chat history for {user_id}")
+          |     # En prod : requ√™te API REST OnlyVue
+          |     return [
+          |         {"timestamp": "2025-08-08T14:00:00Z", "from": "user", "text": "Salut Divista üëã"},
+          |         {"timestamp": "2025-08-08T14:01:00Z", "from": "divista", "text": "Coucou ‚ù§Ô∏è comment tu vas ?"}
+          |     ]
+          | 
+          | @onlyvue_server.register_method("mcp.onlyvue.send_message")
+          | async def handle_send_message(server: MCPServer, request_id, params: list):
+          |     """
+          |     params = [user_id, message_text]
+          |     """
+          |     user_id, message_text = params
+          |     server.logger.info(f"[DEV] Sending to {user_id}: {message_text}")
+          |     # En prod : POST message via API OnlyVue
+          |     return {"status": "success", "recipient": user_id, "message": message_text}
+          | 
+          | if __name__ == "__main__":
+          |     asyncio.run(onlyvue_server.start())
+          --- Fin Contenu ---
+
       Répertoire: ./llmbasedos_src/servers/orchestrator
         Fichier: caps.json
           --- Début Contenu (ascii) ---
@@ -5088,26 +5509,34 @@ Répertoire: ./
           --- Début Contenu (ascii) ---
           | {
           |     "service_name": "predictor",
-          |     "description": "Provides predictive models and data analysis capabilities.",
+          |     "description": "Predictive analytics for user behaviour.",
           |     "version": "0.1.0",
           |     "capabilities": [
-          |         {
-          |             "method": "mcp.predictor.get_crypto_forecast",
-          |             "description": "Provides a price forecast for a given crypto pair.",
-          |             "params_schema": {
-          |                 "type": "array",
-          |                 "items": [{
-          |                     "type": "object",
-          |                     "properties": {
-          |                         "pair": { "type": "string", "description": "e.g., 'BTC-USD'" },
-          |                         "horizon_hours": { "type": "integer", "description": "Forecast horizon in hours." }
-          |                     },
-          |                     "required": ["pair", "horizon_hours"]
-          |                 }]
-          |             }
+          |       {
+          |         "method": "mcp.predictor.booking_probability",
+          |         "description": "Predicts booking probability for a user.",
+          |         "params_schema": {
+          |           "type": "array",
+          |           "prefixItems": [{ "type": "string", "description": "User ID" }],
+          |           "minItems": 1,
+          |           "maxItems": 1,
+          |           "items": false
           |         }
+          |       },
+          |       {
+          |         "method": "mcp.predictor.churn_risk",
+          |         "description": "Estimates churn risk for a user.",
+          |         "params_schema": {
+          |           "type": "array",
+          |           "prefixItems": [{ "type": "string", "description": "User ID" }],
+          |           "minItems": 1,
+          |           "maxItems": 1,
+          |           "items": false
+          |         }
+          |       }
           |     ]
-          | }
+          |   }
+          |   
           --- Fin Contenu ---
 
         Fichier: requirements.txt
@@ -5116,29 +5545,30 @@ Répertoire: ./
           --- Début Contenu (utf-8) ---
           | # llmbasedos_src/servers/predictor/server.py
           | import asyncio
+          | import random
           | from pathlib import Path
           | from llmbasedos_src.mcp_server_framework import MCPServer
-          | import random
           | 
           | SERVER_NAME = "predictor"
           | CAPS_FILE_PATH = str(Path(__file__).parent / "caps.json")
           | predictor_server = MCPServer(SERVER_NAME, CAPS_FILE_PATH)
           | 
-          | @predictor_server.register_method("mcp.predictor.get_crypto_forecast")
-          | async def handle_get_crypto_forecast(server: MCPServer, request_id, params: list):
-          |     options = params[0]
-          |     pair = options.get("pair")
-          |     
-          |     server.logger.info(f"[MOCK] Generating forecast for {pair}...")
-          |     await asyncio.sleep(0.5) # Simuler un calcul
-          |     
-          |     # Réponse simulée avec une structure de base
-          |     return {
-          |         "pair": pair,
-          |         "forecast_price": 42000 + random.uniform(-500, 500),
-          |         "confidence": random.uniform(0.65, 0.85),
-          |         "model_version": "mock_v0.1"
-          |     }
+          | @predictor_server.register_method("mcp.predictor.booking_probability")
+          | async def booking_probability(server: MCPServer, request_id, params: list):
+          |     """
+          |     params[0] = user_id (str)
+          |     MOCK : Retourne une probabilité aléatoire
+          |     """
+          |     user_id = params[0]
+          |     prob = round(random.uniform(0, 1), 2)
+          |     server.logger.info(f"[MOCK] Booking probability for {user_id}: {prob}")
+          |     return {"user_id": user_id, "probability": prob}
+          | 
+          | @predictor_server.register_method("mcp.predictor.churn_risk")
+          | async def churn_risk(server: MCPServer, request_id, params: list):
+          |     user_id = params[0]
+          |     risk = round(random.uniform(0, 1), 2)
+          |     return {"user_id": user_id, "risk": risk}
           | 
           | if __name__ == "__main__":
           |     asyncio.run(predictor_server.start())
@@ -5894,7 +6324,7 @@ Répertoire: ./
         | 
         | # --- Configuration du Shell, Logging, Console Rich ---
         | SHELL_HISTORY_FILE = Path(os.path.expanduser("~/.llmbasedos_shell_history"))
-        | GATEWAY_WS_URL_CONF = os.getenv("LLMBDO_GATEWAY_WS_URL", "ws://localhost:8000/ws")
+        | GATEWAY_WS_URL_CONF = os.getenv("LLMBDO_GATEWAY_WS_URL", "ws://paas:8000/ws")
         | 
         | LOG_LEVEL_STR_CONF = os.getenv("LLMBDO_SHELL_LOG_LEVEL", "INFO").upper()
         | LOG_FORMAT_CONF = os.getenv("LLMBDO_SHELL_LOG_FORMAT", "simple")
@@ -6571,15 +7001,16 @@ Répertoire: ./
     Fichier: config.yaml
       --- Début Contenu (utf-8) ---
       | # ./memobase_config/config.yaml
-      | llm_base_url: "http://llmbasedos_paas:8000/api/v1" # <--- IL VA APPELER TON ROUTEUR !
-      | llm_api_key: "not-needed-for-internal-router"
-      | best_llm_model: "balanced_profile_model" # Un alias que ton routeur pourra comprendre
+      | llm_base_url: "http://llmbasedos_paas:8000/v1"
+      | llm_api_key: "une-cle-dummy-ca-suffit"
       | 
-      | enable_event_embedding: false # On désactive l'embedding pour le moment pour simplifier
+      | # Utilisez un nom de modèle simple pour le sanity check.
+      | # Votre routeur le redirigera de toute façon.
+      | best_llm_model: "gpt-3.5-turbo"
+      | thinking_llm_model: "gpt-3.5-turbo"
       | 
-      | # On garde les profils par défaut pour commencer
-      | additional_user_profiles:
-      |   # ... (on laisse vide pour le moment)
+      | # Très important : désactiver l'embedding au démarrage pour éviter les dépendances
+      | enable_event_embedding: false
       --- Fin Contenu ---
 
   Fichier: refactor_project.sh
@@ -6846,6 +7277,37 @@ Répertoire: ./
     | {"jsonrpc":"2.0","method":"browser_navigate","params":{"url":"https://example.com"},"id":"nav"}
     --- Fin Contenu ---
 
+  Fichier: run_synaps_demo.sh
+    --- Début Contenu (MacRoman) ---
+    | #!/usr/bin/env bash
+    | QUERY="$1"
+    | 
+    | if [ -z "$QUERY" ]; then
+    |   echo "‚ùå Usage: $0 \"Your confidential question\""
+    |   exit 1
+    | fi
+    | 
+    | echo "üìÇ Checking containers..."
+    | docker compose -f docker-compose.dev.yml ps
+    | 
+    | echo "üöÄ Sending to LLM Router (Gemma:2b LOCAL)..."
+    | curl -s http://localhost:8000/mcp.llm.route \
+    |   -H "Content-Type: application/json" \
+    |   -d "{
+    |     \"jsonrpc\": \"2.0\",
+    |     \"id\": 1,
+    |     \"method\": \"mcp.llm.route\",
+    |     \"params\": [
+    |       {
+    |         \"messages\": [
+    |           { \"role\": \"user\", \"content\": \"$QUERY\" }
+    |         ],
+    |         \"options\": { \"model\": \"gemma:2b\" }
+    |       }
+    |     ]
+    |   }" | jq -r '.result'
+    --- Fin Contenu ---
+
   Fichier: supervisord.conf
     --- Début Contenu (utf-8) ---
     | [supervisord]
@@ -6933,6 +7395,33 @@ Répertoire: ./
     | stdout_logfile=/var/log/supervisor/memobase-stdout.log
     | stderr_logfile=/var/log/supervisor/memobase-stderr.log
     | 
+    | [program:mcp-onlyvue]
+    | command=/usr/local/bin/python -m llmbasedos_src.servers.onlyvue.server
+    | user=llmuser
+    | autostart=true
+    | autorestart=true
+    | priority=200
+    | stdout_logfile=/var/log/supervisor/onlyvue-stdout.log
+    | stderr_logfile=/var/log/supervisor/onlyvue-stderr.log
+    | 
+    | [program:mcp-predictor]
+    | command=/usr/local/bin/python -m llmbasedos_src.servers.predictor.server
+    | user=llmuser
+    | autostart=true
+    | autorestart=true
+    | priority=200
+    | stdout_logfile=/var/log/supervisor/predictor-stdout.log
+    | stderr_logfile=/var/log/supervisor/predictor-stderr.log
+    | 
+    | [program:mcp-canva]
+    | command=/usr/local/bin/python -m llmbasedos_src.servers.canva.server
+    | user=llmuser
+    | autostart=true
+    | autorestart=true
+    | priority=300
+    | stdout_logfile=/var/log/supervisor/canva-stdout.log
+    | stderr_logfile=/var/log/supervisor/canva-stderr.log
+    | 
     | ; --- NOTE : Les services suivants sont des placeholders et peuvent être activés
     | ; --- une fois leur code `server.py` implémenté.
     | ;
@@ -6954,4 +7443,3 @@ Répertoire: ./
     | ;stdout_logfile=/var/log/supervisor/football_data-stdout.log
     | ;stderr_logfile=/var/log/supervisor/football_data-stderr.log
     --- Fin Contenu ---
-
