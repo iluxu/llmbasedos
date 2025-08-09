@@ -10,12 +10,15 @@ services:
       - llmbasedos-net
     tty: true
     volumes:
+      - ./app:/app:cached
+       
       - ./llmbasedos_src:/opt/app/llmbasedos_src:rw
       - ./supervisord.conf:/etc/supervisor/conf.d/llmbasedos.conf:ro
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock   
       - ./config:/etc/llmbasedos:ro
       - ./data:/data:rw
       # NOTE: Le supervisord.conf est maintenant copié dans le Dockerfile, pas besoin de le monter ici.
+    user: "${UID}:${GID}" 
     env_file:
       - .env # Charge toutes les variables depuis le fichier .env
     environment:

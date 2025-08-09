@@ -17,6 +17,8 @@ llm_router_server = MCPServer(SERVER_NAME, CAPS_FILE_PATH)
 
 # Env Vars
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
+DEFAULT_MODEL = os.getenv("LOCAL_LLM", "gemma:2b")
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
 CACHE_EXPIRATION_SECONDS = 3600 * 24
@@ -67,20 +69,44 @@ class OllamaProvider:
     def __init__(self, server: MCPServer):
         self.server = server
         self.logger = server.logger
-        self.base_url = "http://ollama:11434/api/chat"  # URL inside Docker network
+        self.base_url = f"{OLLAMA_BASE_URL}/v1/chat/completions"  # URL inside Docker network
         self.default_model = "gemma:2b"
 
+    # Dans la classe OllamaProvider de llm_router/server.py
+
     async def execute_call(self, messages: list, options: dict):
-        model = options.get("model", self.default_model)
-        payload = {"model": model, "messages": messages, "stream": False}
-        try:
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                r = await client.post(self.base_url, json=payload)
-                r.raise_for_status()
-                return r.json()
-        except Exception as e:
-            self.logger.error(f"Ollama call failed: {e}", exc_info=True)
-            return {"error": f"Ollama call failed: {str(e)}", "model": model}
+        model = options.get("model", DEFAULT_MODEL)
+        
+        # Le payload pour /v1/chat/completions est au format OpenAI
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "temperature": options.get("temperature", 0.7),
+            }
+        }
+        
+        self.logger.info(f"Calling Ollama at {self.base_url} with model: {model}")
+        
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            try:
+                # On envoie directement le payload compatible OpenAI
+                response = await client.post(self.base_url, json=payload)
+                response.raise_for_status()
+                
+                # Pas besoin de traduire la réponse, elle est déjà au format OpenAI !
+                return response.json()
+                
+            except httpx.HTTPStatusError as e:
+                error_text = e.response.text
+                self.logger.error(f"Ollama API error: {e.response.status_code} - {error_text}")
+                if "model not found" in error_text:
+                    raise RuntimeError(f"Ollama error: Model '{model}' not found. Please run 'docker exec llmbasedos_ollama ollama pull {model}'")
+                raise RuntimeError(f"Ollama API Error: {e.response.status_code} - {error_text}")
+            except Exception as e:
+                self.logger.error(f"Error calling Ollama: {e}", exc_info=True)
+                raise RuntimeError(f"Network or other error calling Ollama: {str(e)}")
 
 
 # --- Choose Provider ---

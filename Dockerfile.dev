@@ -81,10 +81,13 @@ RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/memobase.txt
 RUN rm -rf /tmp/reqs /tmp/wheels
 
 # Create app user
+# --- Création de l'utilisateur et des permissions ---
 ARG APP_USER=llmuser
-RUN useradd -ms /bin/bash ${APP_USER} \
-    && mkdir -p /run/mcp /var/log/supervisor /data \
-    && chown -R ${APP_USER}:${APP_USER} ${APP_ROOT_DIR} /data /run/mcp
+ARG DOCKER_GID
+RUN groupadd -g ${DOCKER_GID:-999} docker && \
+    useradd -ms /bin/bash ${APP_USER} && usermod -aG docker ${APP_USER} && \
+    mkdir -p /run/mcp /var/log/supervisor /data && \
+    chown -R ${APP_USER}:${APP_USER} ${APP_ROOT_DIR}
 
 # Copy application
 COPY ./llmbasedos_src ${APP_ROOT_DIR}/llmbasedos_src

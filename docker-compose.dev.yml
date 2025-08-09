@@ -5,6 +5,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
+      args:
+        - DOCKER_GID=999 # <--- REMPLACEZ 998 PAR LE NOMBRE OBTENU
     container_name: llmbasedos_dev
     volumes:
       - ./llmbasedos_src:/opt/app/llmbasedos_src:rw
