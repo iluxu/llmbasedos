@@ -1,10 +1,38 @@
-# llmbasedos/.gitignore
+# --- Secrets & Configuration Locale (NE JAMAIS COMMIT) ---
+# Fichier d'environnement principal pour les clés API, etc.
+.env
+# Fichiers de secrets montés dans les conteneurs
+lic.key
+mail_accounts.yaml
+# Configuration de Memobase si elle contient des secrets.
+# Bonne pratique : commiter un `config.yaml.example` à la place.
+memobase_config/config.yaml
 
-# Python
+# --- Données Générées & Runtime ---
+# Le dossier principal pour toutes les données générées par les Sentinelles
+/data/
+# Modèles LLM locaux téléchargés par Ollama
+/ollama_models/
+# Logs générés localement ou par des scripts
+*.log
+logs/
+ticker.log
+# Cache d'ingestion du projet
+cache_project_ingestion.txt
+
+# --- Dépendances & Environnements Python ---
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# --- Artefacts de Build Python ---
 *.egg
 *.egg-info/
 dist/
@@ -16,16 +44,15 @@ var/
 *.sqlite3
 *.db
 instance/
-# Environments
-.env
-.venv/
-venv/
-ENV/
-env/
-env.bak/
-venv.bak/
 
-# IDE / Editor specific
+# --- Caches d'Outils de Développement ---
+.mypy_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# --- Fichiers Spécifiques aux IDEs & Éditeurs ---
 .vscode/
 .idea/
 *.sublime-project
@@ -35,45 +62,12 @@ nbproject/
 *~
 *.bak
 
-# Operating System files
+# --- Fichiers Spécifiques au Système d'Exploitation ---
 .DS_Store
 Thumbs.db
 
-# llmbasedos specific build artifacts
+# --- Artefacts de Build (Legacy - à vérifier si toujours utile) ---
 iso/work/
 iso/out/
-iso/airootfs/ # The overlay directory we create during build
+iso/airootfs/
 *.iso
-
-# Logs (local dev logs, not persistent service logs if they are elsewhere)
-*.log
-logs/
-*.log.*
-
-# Secrets / Credentials (IMPORTANT!)
-# Add any files that might contain sensitive data
-/etc/llmbasedos/lic.key # If you have a real PRO/ELITE key for testing, don't commit it
-/etc/llmbasedos/mail_accounts.yaml # Contains passwords
-/etc/llmbasedos/gateway.env # If you use an env file for API keys
-
-# FAISS index files (these can be large and are generated)
-/var/lib/llmbasedos/faiss_indices/fs/index.faiss
-/var/lib/llmbasedos/faiss_indices/fs/metadata.json
-# Or more generally:
-# /var/lib/llmbasedos/faiss_indices/**/*.faiss
-# /var/lib/llmbasedos/faiss_indices/**/*.json
-
-# Local test data or large files not meant for repo
-# local_test_data/
-# large_models/
-
-# Coverage reports
-.coverage
-coverage.xml
-htmlcov/
-
-# MyPy cache
-.mypy_cache/
-
-# Pytest cache
-.pytest_cache/

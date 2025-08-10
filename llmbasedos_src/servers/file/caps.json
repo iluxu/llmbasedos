@@ -1,0 +1,44 @@
+{
+    "service_name": "file",
+    "description": "Provides basic, non-intelligent file system operations.",
+    "version": "0.1.0",
+    "capabilities": [
+      {
+        "method": "mcp.file.list",
+        "description": "Lists files in a directory.",
+        "params_schema": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "prefixItems": [{ "type": "string", "description": "The virtual path to list." }]
+        }
+      },
+      {
+        "method": "mcp.file.read",
+        "description": "Reads content from a file.",
+        "params_schema": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "prefixItems": [
+            { "type": "string", "description": "The virtual path to the file." },
+            { "type": "string", "enum": ["text", "base64"], "description": "Encoding type (defaults to text)." }
+          ]
+        }
+      },
+      {
+        "method": "mcp.file.write",
+        "description": "Writes content to a file.",
+        "params_schema": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 3,
+          "prefixItems": [
+            { "type": "string", "description": "The virtual path to the file." },
+            { "description": "The content to write." },
+            { "type": "string", "enum": ["text", "base64"], "description": "Encoding type (defaults to text)." }
+          ]
+        }
+      }
+    ]
+  }

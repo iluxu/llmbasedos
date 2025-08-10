@@ -9,19 +9,12 @@ fi
 echo "📂 Checking containers..."
 docker compose -f docker-compose.dev.yml ps
 
-echo "🚀 Sending to LLM Router (Gemma:2b LOCAL)..."
-curl -s http://localhost:8000/mcp.llm.route \
+echo "🚀 Sending to Gateway (OpenAI compatible)..."
+curl -s http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d "{
-    \"jsonrpc\": \"2.0\",
-    \"id\": 1,
-    \"method\": \"mcp.llm.route\",
-    \"params\": [
-      {
-        \"messages\": [
-          { \"role\": \"user\", \"content\": \"$QUERY\" }
-        ],
-        \"options\": { \"model\": \"gemma:2b\" }
-      }
+    \"model\": \"gemma:2b\",
+    \"messages\": [
+      { \"role\": \"user\", \"content\": \"$QUERY\" }
     ]
-  }" | jq -r '.result'
+  }" | jq -r '.choices[0].message.content'

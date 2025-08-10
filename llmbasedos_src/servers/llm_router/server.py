@@ -5,23 +5,21 @@ import hashlib
 from pathlib import Path
 import redis
 import httpx
+import time # <-- AJOUTEZ CET IMPORT
 # from sentence_transformers import SentenceTransformer  # Not used in local mode yet
 # import chromadb  # Not used in local mode yet
 
 from llmbasedos_src.mcp_server_framework import MCPServer
+from .config import (
+    OLLAMA_BASE_URL, DEFAULT_MODEL, REDIS_HOST, REDIS_PASSWORD,
+    CACHE_EXPIRATION_SECONDS, LLM_PROVIDER_BACKEND, GEMINI_API_KEY
+)
+
 
 # --- Configuration ---
 SERVER_NAME = "llm_router"
 CAPS_FILE_PATH = str(Path(__file__).parent / "caps.json")
 llm_router_server = MCPServer(SERVER_NAME, CAPS_FILE_PATH)
-
-# Env Vars
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-DEFAULT_MODEL = os.getenv("LOCAL_LLM", "gemma:2b")
-REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
-CACHE_EXPIRATION_SECONDS = 3600 * 24
 
 # --- Cache Manager ---
 class CacheManager:
@@ -64,6 +62,70 @@ class CacheManager:
             self.logger.error(f"Redis SET error: {e}")
 
 
+# --- Gemini Provider ---
+class GeminiProvider:
+    def __init__(self, server: MCPServer):
+        self.server = server
+        self.logger = server.logger
+        self.api_key = os.getenv("GEMINI_API_KEY")
+        if not self.api_key:
+            raise ValueError("GEMINI_API_KEY environment variable not set.")
+        self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
+
+    def _to_gemini_format(self, messages: list) -> list:
+        # Gemini a un format de message légèrement différent
+        gemini_contents = []
+        for msg in messages:
+            # Gemini n'aime pas le rôle "system", on le transforme en "user"
+            role = "user" if msg["role"] in ["user", "system"] else "model"
+            gemini_contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+        return gemini_contents
+
+    def _from_gemini_format(self, gemini_response: dict, model: str) -> dict:
+        # On retraduit la réponse Gemini en format OpenAI pour la cohérence
+        text = gemini_response.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        usage = gemini_response.get("usageMetadata", {})
+        return {
+            "id": f"chatcmpl-gemini-{int(time.time())}",
+            "object": "chat.completion",
+            "model": model,
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
+            "usage": {
+                "prompt_tokens": usage.get("promptTokenCount", 0),
+                "completion_tokens": usage.get("candidatesTokenCount", 0),
+                "total_tokens": usage.get("totalTokenCount", 0),
+            }
+        }
+
+    async def execute_call(self, messages: list, options: dict):
+        model = options.get("model", "gemini-2.5-pro-preview-06-05")
+        api_url = f"{self.base_url}/{model}:generateContent?key={self.api_key}"
+        
+        payload = {
+            "contents": self._to_gemini_format(messages),
+            "generationConfig": {
+                "temperature": options.get("temperature", 0.7),
+                "maxOutputTokens": options.get("max_tokens", 2048)
+            }
+        }
+        
+        self.logger.info(f"Calling Gemini at {self.base_url}/{model}...")
+        
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            try:
+                response = await client.post(api_url, json=payload)
+                response.raise_for_status()
+                return self._from_gemini_format(response.json(), model)
+            except httpx.HTTPStatusError as e:
+                error_text = e.response.text
+                self.logger.error(f"Gemini API error: {e.response.status_code} - {error_text}")
+                raise RuntimeError(f"Gemini API Error: {e.response.status_code} - {error_text}")
+            except Exception as e:
+                self.logger.error(f"Error calling Gemini: {e}", exc_info=True)
+                raise RuntimeError(f"Network or other error calling Gemini: {str(e)}")
+
+
+
 # --- Ollama Provider (local mode) ---
 class OllamaProvider:
     def __init__(self, server: MCPServer):
@@ -82,10 +144,15 @@ class OllamaProvider:
             "model": model,
             "messages": messages,
             "stream": False,
-            "options": {
-                "temperature": options.get("temperature", 0.7),
-            }
+            "temperature": options.get("temperature", 0.7)
+            # Vous pouvez ajouter d'autres options OpenAI ici si besoin
+            # "max_tokens": options.get("max_tokens"),
         }
+
+        # Si vous voulez aussi que le LLM retourne du JSON, il faut ajouter le paramètre "format"
+        # C'est important pour votre Arc seo_affiliate qui attend du JSON !
+        if options.get("response_format") == "json":
+            payload["format"] = "json"
         
         self.logger.info(f"Calling Ollama at {self.base_url} with model: {model}")
         
@@ -109,10 +176,21 @@ class OllamaProvider:
                 raise RuntimeError(f"Network or other error calling Ollama: {str(e)}")
 
 
-# --- Choose Provider ---
-USE_LOCAL_OLLAMA = True
+# --- Choose Provider (via Environment Variable) ---
+LLM_PROVIDER_BACKEND = os.getenv("LLM_PROVIDER_BACKEND", "ollama").lower()
+
 intelligence = CacheManager(llm_router_server)
-provider = OllamaProvider(llm_router_server) if USE_LOCAL_OLLAMA else None
+provider = None
+if LLM_PROVIDER_BACKEND == "gemini":
+    try:
+        provider = GeminiProvider(llm_router_server)
+        llm_router_server.logger.info("✅ LLM Router backend set to: Gemini")
+    except ValueError as e:
+        llm_router_server.logger.error(f"Could not initialize Gemini provider: {e}. Falling back to Ollama.")
+        provider = OllamaProvider(llm_router_server)
+else:
+    provider = OllamaProvider(llm_router_server)
+    llm_router_server.logger.info(f"✅ LLM Router backend set to: {LLM_PROVIDER_BACKEND} (Ollama)")
 
 
 # --- Handler ---

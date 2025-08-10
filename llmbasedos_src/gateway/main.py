@@ -257,7 +257,8 @@ async def handle_openai_compatible_request(request: Request):
             "model": openai_payload.get("model"),
             "temperature": openai_payload.get("temperature"),
             "max_tokens": openai_payload.get("max_tokens"),
-            "stream": openai_payload.get("stream", False)
+            "stream": openai_payload.get("stream", False),
+            "response_format": openai_payload.get("response_format") # <-- AJOUTEZ CETTE LIGNE
         }
         
         mcp_params = [{
@@ -266,8 +267,10 @@ async def handle_openai_compatible_request(request: Request):
         }]
         
         class MockHttpContext:
+            is_http_mock = True # <-- AJOUTEZ CETTE LIGNE
             class Client:
                 host = request.client.host if request.client else "unknown_http_host"
+                port = request.client.port if request.client else 0 # <-- AJOUTEZ CETTE LIGNE
             client = Client()
 
         licence_ctx, auth_error_obj = authenticate_and_authorize_request(MockHttpContext(), "mcp.llm.chat")

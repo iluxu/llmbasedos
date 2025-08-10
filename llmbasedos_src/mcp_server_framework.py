@@ -269,7 +269,7 @@ class MCPServer:
         self.logger.info(f"MCP Server '{self.server_name}' listening on UNIX socket: {addr}")
         
         try:
-            os.chmod(str(self.socket_path), 0o660)
+            os.chmod(str(self.socket_path), 0o666) 
             self.logger.info(f"Set permissions for {self.socket_path} to 0660.")
         except OSError as e:
             self.logger.warning(f"Could not set permissions/owner for socket {self.socket_path}: {e}")

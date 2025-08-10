@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile.dev
       args:
-        - DOCKER_GID=999
+        - DOCK-ER_GID=999
     container_name: llmbasedos_dev # Le nom du conteneur peut rester le même
     volumes:
       - ./llmbasedos_src:/opt/app/llmbasedos_src:rw
@@ -19,10 +19,27 @@ services:
       - redis
     networks:
       - llmbasedos-net
+    
+    # --- SECTION À METTRE À JOUR ---
+    env_file:
+      - .env  # 1. Charge toutes les variables du fichier .env (GEMINI_API_KEY)
+
     environment:
+      # --- Variables pour les services internes ---
       REDIS_HOST: redis
       REDIS_PASSWORD: helloworld
-      LOCAL_LLM: "gemma:2b"
+      OLLAMA_BASE_URL: "http://ollama:11434" # Bonne pratique de le définir ici
+      
+      # --- Variables pour le LLM Router ---
+      LLM_PROVIDER_BACKEND: "gemini"    # 2. C'est le "switch" qui dit au router d'utiliser Gemini
+      GEMINI_API_KEY: ${GEMINI_API_KEY} # 3. Passe la clé API lue depuis le .env dans le conteneur
+      
+      # --- Variables pour les Arcs (si besoin) ---
+      LLM_ROUTER_URL: "http://paas:8000/v1/chat/completions" # Gardez-la, elle est utile
+
+      # --- Variables de fallback (si on rebascule sur Ollama) ---
+      LOCAL_LLM: "llama3:8b" # On garde llama3, plus performant que gemma
+
     ports:
       - "8000:8000"
     tty: true

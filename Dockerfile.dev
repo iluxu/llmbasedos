@@ -1,92 +1,88 @@
 # syntax=docker/dockerfile:1.6
 
 # =========================================================
-# == STAGE 1: BUILDER - Build Python wheels once
+# == STAGE 1: BUILDER - Pré-construction des dépendances
 # =========================================================
 FROM python:3.10-slim AS builder
 LABEL stage=builder
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1 PYTHONUNBUFFERED=1 APP_ROOT_DIR=/opt/app
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1 \
+    APP_ROOT_DIR=/opt/app
+
 WORKDIR ${APP_ROOT_DIR}
 
+# Dépendances système minimales pour la compilation
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential python3-dev curl libmagic1 \
+    build-essential \
+    python3-dev \
+    curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# --- DÉPENDANCES PYTHON NÉCESSAIRES POUR LE DEV MODE ---
+# --- Dépendances Python communes à tous les services ---
+# On regroupe tout dans un seul fichier pour optimiser les couches Docker
 COPY llmbasedos_src/requirements.txt /tmp/reqs/base.txt
-RUN --mount=type=cache,target=/root/.cache/pip pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/base.txt
-
 COPY llmbasedos_src/gateway/requirements.txt /tmp/reqs/gateway.txt
-RUN --mount=type=cache,target=/root/.cache/pip pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/gateway.txt
-
 COPY llmbasedos_src/servers/llm_router/requirements.txt /tmp/reqs/llm_router.txt
-RUN --mount=type=cache,target=/root/.cache/pip pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/llm_router.txt
-
 COPY llmbasedos_src/servers/memobase/requirements.txt /tmp/reqs/memobase.txt
-RUN --mount=type=cache,target=/root/.cache/pip pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/memobase.txt
-
 COPY llmbasedos_src/shell/requirements.txt /tmp/reqs/shell.txt
-RUN --mount=type=cache,target=/root/.cache/pip pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/shell.txt
+COPY llmbasedos_src/servers/kv/requirements.txt /tmp/reqs/kv.txt
+# NOTE: Le service 'file' n'a pas de requirements.txt, donc on ne le copie pas
 
-# --- BUILDER: fs ---
-COPY llmbasedos_src/servers/fs/requirements.txt /tmp/reqs/fs.txt
+# Concaténer tous les requirements en un seul pour une seule commande `pip wheel`
+RUN cat /tmp/reqs/*.txt > /tmp/requirements.txt
+
+# Construire toutes les "wheels" en une seule fois pour maximiser le cache
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/fs.txt
+    pip wheel --wheel-dir /tmp/wheels -r /tmp/requirements.txt
 
 
 # =========================================================
-# == STAGE 2: RUNTIME - Lightweight final image
+# == STAGE 2: RUNTIME - Image de développement finale
 # =========================================================
 FROM python:3.10-slim
 LABEL description="LLMbasedOS DEV image"
-ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 APP_ROOT_DIR=/opt/app
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    APP_ROOT_DIR=/opt/app \
+    PYTHONPATH=/opt/app
 
 WORKDIR ${APP_ROOT_DIR}
 
+# Dépendances système nécessaires au runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    supervisor curl libmagic1 nodejs npm gosu \
+    supervisor \
+    curl \
+    libmagic1 \
+    gosu \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Copier les wheels pré-construites
 COPY --from=builder /tmp/wheels /tmp/wheels
+COPY --from=builder /tmp/requirements.txt /tmp/requirements.txt
 
-# INSTALLATION DES DÉPENDANCES
-COPY llmbasedos_src/requirements.txt /tmp/reqs/base.txt
-RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/base.txt
+# Installer toutes les dépendances en une seule commande
+RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/requirements.txt
 
-COPY llmbasedos_src/gateway/requirements.txt /tmp/reqs/gateway.txt
-RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/gateway.txt
+# Nettoyage
+RUN rm -rf /tmp/wheels /tmp/requirements.txt
 
-COPY llmbasedos_src/servers/llm_router/requirements.txt /tmp/reqs/llm_router.txt
-RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/llm_router.txt
-
-COPY llmbasedos_src/servers/memobase/requirements.txt /tmp/reqs/memobase.txt
-RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/memobase.txt
-
-COPY llmbasedos_src/shell/requirements.txt /tmp/reqs/shell.txt
-RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/shell.txt
-
-# --- RUNTIME: fs ---
-COPY llmbasedos_src/servers/fs/requirements.txt /tmp/reqs/fs.txt
-RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/fs.txt
-
-
-
-RUN rm -rf /tmp/reqs /tmp/wheels
-
-# --- UTILISATEUR ET PERMISSIONS ---
+# --- Utilisateur et Permissions ---
+# On passe le GID du groupe Docker de l'hôte pour éviter les problèmes de permissions
+ARG DOCKER_GID=999
 ARG APP_USER=llmuser
-ARG DOCKER_GID
-RUN groupadd -g ${DOCKER_GID:-999} docker && \
-    useradd -ms /bin/bash ${APP_USER} && usermod -aG docker ${APP_USER} && \
+
+RUN groupadd -g ${DOCKER_GID} docker && \
+    useradd -ms /bin/bash -u 1000 ${APP_USER} && \
+    usermod -aG docker ${APP_USER} && \
     mkdir -p /run/mcp /var/log/supervisor /data && \
     chown -R ${APP_USER}:${APP_USER} /data /run/mcp
 
-# --- COPIE DES SCRIPTS (SERONT MASQUÉS PAR LES VOLUMES) ---
+# --- Scripts et Commande d'Exécution ---
+# Ces fichiers seront montés par docker-compose, ceci est un fallback
 COPY ./entrypoint.sh /opt/app/entrypoint.sh
 RUN chmod +x /opt/app/entrypoint.sh
 
-ENV PYTHONPATH=/opt/app
-
-# --- COMMANDE D'EXÉCUTION ---
 ENTRYPOINT ["/opt/app/entrypoint.sh"]
 CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/conf.d/llmbasedos.conf"]

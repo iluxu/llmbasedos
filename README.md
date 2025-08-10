@@ -1,140 +1,110 @@
 # llmbasedos
 
-`llmbasedos` is not just a framework or set of plugins. It is a **cognitive operating system** designed to transform your computer from a passive executor into an **autonomous partner** — capable of perceiving, reasoning, and acting across both local and cloud contexts.
+`llmbasedos` isn't just another agent framework. It's a **runtime for autonomous agents**, designed to turn your machine into a proactive partner that can perceive, reason, and act.
 
-It does this by exposing all system capabilities (files, mail, APIs, agents) to any intelligent model — LLM or not — via the **Model Context Protocol (MCP)**: a simple, powerful JSON-RPC layer running over UNIX sockets and WebSockets.
+It achieves this through the **Model Context Protocol (MCP)**: a simple, powerful JSON-RPC layer that exposes all system capabilities—local LLMs, KV stores, web browsers, publishing APIs—as plug-and-play tools called **Arcs**.
 
-The vision is to make **personal agentivity** real — by empowering AI agents to perform meaningful tasks on your behalf with minimal plumbing, friction, or boilerplate.
+The vision is to make agentivity real: empower AI **Sentinels** to execute complex, multi-step missions on your behalf with minimal friction and maximum autonomy.
+
+> llmbasedos is what happens when you stop asking "how can I call a LLM?" and start asking "what if a LLM could call *everything else*?"
 
 ---
 
 ## ✨ What Makes llmbasedos Different?
 
-* 🔌 **Unified Abstraction Layer**: All capabilities (LLM calls, file ops, mail, browser, rclone, etc.) are exposed as MCP methods, fully discoverable and callable.
-* 🧠 **LLM-Agnostic**: Use OpenAI, Gemini, LLaMA.cpp, or local models interchangeably. The system routes `mcp.llm.chat` requests via your preferred backend.
-* 🧰 **Script-first, not YAML**: Agent workflows are Python scripts, not rigid YAML trees. That means full logic, full debugging, and full flexibility.
-* 🔒 **Local-first, Secure-by-default**: Data stays local unless explicitly bridged. The OS abstracts I/O without exposing sensitive paths or tokens.
-
----
-
-## 🧠 Philosophy & Paradigm Shift
-
-> "The true power of AI is not in the model, but in its ability to act contextually."
-
-Where most projects focus on “the agent,” llmbasedos focuses on the **substrate**: a runtime and interface that lets agents — whether LLM-driven or human-written — perform intelligent tasks, access context, and automate real workflows.
-
-Just like Unix abstracted away hardware with file descriptors, **llmbasedos abstracts cognitive capabilities** with the MCP.
+*   🤖 **Truly Autonomous Agents ("Sentinels")**: Sentinels aren't just reactive chatbots. They have an "Awake" Arc, allowing them to proactively think, plan, and act based on events or internal triggers.
+*   🧠 **LLM-Agnostic & Local-First**: The built-in `llm_router` intelligently routes requests to any backend—local Ollama, Gemini, OpenAI—based on policies you define. Privacy and offline capability are built-in, not afterthoughts.
+*   📜 **LLM-Generated Plans (TOML, not YAML)**: Missions are defined in clean, human-readable TOML files called "Quests." A Sentinel can draft its own Quest using a LLM, which you can then approve and run.
+*   🔌 **Lightweight, Composable Arcs**: Every tool is a simple, standalone MCP microservice. Forget monolithic agents; here, you build Sentinels by composing lightweight, single-purpose Arcs.
 
 ---
 
 ## 🚀 Core Architecture
 
-* **Docker-first** deployment with `supervisord` managing microservices.
-* **Gateway**: routes MCP traffic, exposes LLM abstraction, enforces license tiers.
-* **MCP Servers**: plug-and-play Python services exposing files, email, web, and more.
-* **Shell**: `luca-shell`, a REPL for exploring and scripting against your MCP system.
+*   **Docker-First Infrastructure**: Core services (`redis`, `ollama`, etc.) are managed via `docker-compose`.
+*   **Supervisord-Managed Arcs**: All Arcs (MCP servers) run as independent processes inside a single container, managed by `supervisord` for resilience.
+*   **Gateway**: A central FastAPI server that routes all external (WebSocket) and internal (UNIX Socket) MCP traffic.
+*   **LLM Router**: The intelligent switchboard that selects the right LLM for the job based on cost, privacy, and purpose (`rank`, `copy`, `chat`).
+*   **`luca-run` & `luca-shell`**: Your command center. A REPL and a non-interactive client for inspecting, debugging, and commanding your Sentinels.
+
+ <!-- Suggestion: Create a simple Mermaid diagram and upload it -->
 
 ---
 
-## 🔁 From YAML to Scripts: A Strategic Pivot
+## 🤖 The Magic: An Autonomous Sentinel in Action
 
-Old approach: YAML workflows (rigid, hard to debug, logic hell).
+Instead of writing complex Python scripts, you witness the system work. Here’s the "Quick Money" Sentinel's autonomous loop:
 
-New approach: Python scripts using `mcp_call()` for everything.
+1.  **Awakening**: The `awake` Arc "thinks" and decides it's time to act. It calls the `llm_router`.
+2.  **Ideation**: It asks Gemini/Llama3 for a single, trending SEO topic.
+    > *"Give me one specific, trending topic for a crypto beginner's blog."*
+3.  **Action**: It calls the `seo_affiliate` Arc with the new topic.
+4.  **Creation**: The `seo_affiliate` Arc uses the LLM to write a complete, SEO-optimized article (title, meta, FAQ, schema.org) and generates the static HTML files.
+5.  **Result**: A new, ready-to-publish mini-site is created in the `/data/sites` directory.
 
-Example:
-
-```python
-history = json.loads(mcp_call("mcp.fs.read", ["/outreach/contact_history.json"]).get("result", {}).get("content", "[]"))
-
-prompt = f"Find 5 new agencies not in: {json.dumps(history)}"
-llm_response = mcp_call("mcp.llm.chat", [[{"role": "user", "content": prompt}], {"model": "gemini-1.5-pro"}])
-
-new_prospects = json.loads(llm_response.get("result", {}).get("choices", [{}])[0].get("message", {}).get("content", "[]"))
-
-if new_prospects:
-    updated = history + new_prospects
-    mcp_call("mcp.fs.write", ["/outreach/contact_history.json", json.dumps(updated, indent=2), "text"])
-```
-
-That’s it. You just built an LLM-powered outreach agent with **3 calls and zero boilerplate**.
+All of this happens with **zero human intervention**, triggered by a single `tick`.
 
 ---
 
-## 🧱 Gateway + Servers Overview
+## 🔧 Quick Start Guide (Dev Environment)
 
-* `gateway/` (FastAPI):
+1.  **Prerequisites**: Docker & Docker Compose.
+2.  **Clone the Repo**:
+    ```bash
+    git clone https://github.com/your-username/llmbasedos.git
+    cd llmbasedos
+    ```
+3.  **Configuration**:
+    *   Create a `.env` file from the example.
+    *   Add your `GEMINI_API_KEY` if you want to use Gemini.
+4.  **Launch Infrastructure & Arcs**:
+    ```bash
+    # This command handles Docker permissions for you
+    DOCKER_GID=$(getent group docker | cut -d: -f3)
+    docker compose -f docker-compose.dev.yml build --build-arg DOCKER_GID=$DOCKER_GID
+    docker compose -f docker-compose.dev.yml up -d
+    ```
+5.  **Test the KV Arc**:
+    ```bash
+    # Connect to the shell as the correct user
+    docker exec -it --user llmuser llmbasedos_dev python -m llmbasedos_src.shell.luca
 
-  * WebSocket + TCP endpoints.
-  * Auth & license tiers (`lic.key`, `licence_tiers.yaml`).
-  * LLM multiplexer (OpenAI, Gemini, local models).
-* `servers/fs/`: virtualized file system + FAISS semantic search.
-* `servers/mail/`: IMAP email parsing + draft handling.
-* `servers/sync/`: rclone for file sync ops.
-* `servers/agent/`: (legacy) YAML workflow engine (to be deprecated).
-
----
-
-## 🔧 Deployment Guide (Docker)
-
-1. Install Docker + Docker Compose.
-2. Clone the repo, and organize `llmbasedos_src/`.
-3. Add your `.env`, `lic.key`, `mail_accounts.yaml`, and user files.
-4. Build:
-
-```bash
-docker compose build
-```
-
-5. Run:
-
-```bash
-docker compose up
-```
-
-6. Connect via `luca-shell` and start issuing `mcp.*` calls.
-
----
-
-## 🧬 Roadmap: From Execution to Intention
-
-Next milestone: `orchestrator_server`
-
-It listens to natural language intentions ("Find 5 leads & draft intro emails"), auto-generates Python scripts to execute the plan, then optionally runs them.
-
-→ the OS becomes **a compiler for intention**.
+    # Inside luca-shell, test the KV store
+    mcp.kv.set '["hello", "world"]'
+    mcp.kv.get '["hello"]'
+    ```
+6.  **Trigger the Autonomous Sentinel**:
+    *   From your host machine (not in the shell), run the ticker:
+        ```bash
+        ./ticker.sh
+        ```
+    *   Watch the logs and see a new site appear in the `./data/sites` directory!
 
 ---
 
-## 🔐 Security Highlights
+## 🧬 Roadmap: The Adoptan.ai Marketplace
 
-* Virtual path jail (e.g., `/mnt/user_data`)
-* Licence-based tier enforcement
-* No keys baked in: `.env`-only secrets
-* Containers use readonly volumes for config
+`llmbasedos` is the engine. **Adoptan.ai** is the destination.
+
+The next milestone is to build a marketplace where developers can submit, certify, and sell/lease their Arcs and Sentinels.
+*   **Sentinel Gauntlet**: An automated certification process to ensure Arcs are secure, efficient, and reliable.
+*   **Composable Economy**: Users can acquire new Arcs to upgrade their Sentinels, or lease fully-trained, specialized Sentinels for specific missions (trading, lead-gen, social media).
 
 ---
 
 ## 🧠 Who is llmbasedos For?
 
-* Builders tired of gluing APIs together manually
-* Agents researchers needing a clean substrate
-* Indie hackers who want GPT to *actually* do things
+*   **Indie Hackers** who want to build AI-powered businesses, not just chatbot features.
+*   **Developers** tired of wrestling with complex agent frameworks and YAML.
+*   **Researchers** who need a stable, observable runtime to experiment with agent autonomy.
 
 ---
 
 ## 🌐 Technologies Used
 
-* Python 3.10+ / FastAPI / WebSockets / Supervisord
-* Docker / Compose / Volume Mounting
-* JSON-RPC 2.0 (MCP)
-* FAISS + SentenceTransformers
-* OpenAI / Gemini / LLaMA.cpp
-
----
-
-## 🧭 Stay Updated
-
-Stars, forks, PRs and radical experiments welcome.
-
-> llmbasedos is what happens when you stop asking "how can I call GPT" and start asking "what if GPT could *call everything else*?"
+*   Python 3.10+, FastAPI, Supervisord
+*   Docker, Docker Compose
+*   **MCP**: JSON-RPC over UNIX Sockets & WebSockets
+*   **LLMs**: Ollama (Llama3, Gemma), Gemini
+*   **Data**: Redis (KV Store), Memobase (Contextual Memory)
+*   **Plans**: TOML

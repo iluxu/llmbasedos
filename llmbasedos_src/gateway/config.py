@@ -80,31 +80,7 @@ if LICENCE_TIERS_CONFIG_PATH.exists() and LICENCE_TIERS_CONFIG_PATH.is_file():
 else:
     logging.info(f"Licence tiers config file not found at {LICENCE_TIERS_CONFIG_PATH}. Using permissive FREE default tiers.")
 
-#cat /var/log/supervisor/mcp-gateway.stdout.log
-# --- Upstream LLM Settings ---
-OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
-GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY") # NEW
-if not OPENAI_API_KEY:
-    logging.warning("OPENAI_API_KEY environment variable not set. OpenAI models may not function.")
-DEFAULT_LLM_PROVIDER: str = os.getenv("LLMBDO_DEFAULT_LLM_PROVIDER", "gemini")
-AVAILABLE_LLM_MODELS: Dict[str, Dict[str, Any]] = {
-    "gpt-4o": {
-        "provider": "openai", "model_name": "gpt-4o",
-        "api_base_url": os.getenv("OPENAI_API_BASE_URL", "https://api.openai.com/v1"),
-        "api_key": None, "is_default": True if DEFAULT_LLM_PROVIDER == "openai" else False,
-    },
-    "local-llama": {
-        "provider": "llama_cpp", "model_name": os.getenv("LLAMA_CPP_DEFAULT_MODEL", "default-model-alias"),
-        "api_base_url": os.getenv("LLAMA_CPP_API_BASE_URL", "http://localhost:8080/v1"),
-        "api_key": None, "is_default": True if DEFAULT_LLM_PROVIDER == "llama_cpp" else False,
-    },
-    "gemini-1.5-pro": {
-    "provider": "gemini", 
-    "model_name": "gemini-2.5-pro-preview-06-05",
-    "api_base_url": "https://generativelanguage.googleapis.com/v1beta/models",
-    "is_default": DEFAULT_LLM_PROVIDER == "gemini",
-    },
-}
+
 
 # --- Logging ---
 LOG_LEVEL_STR: str = os.getenv("LLMBDO_LOG_LEVEL", "INFO").upper()

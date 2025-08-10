@@ -1,0 +1,10 @@
+{
+    "service_name": "awake",
+    "version": "0.1.0",
+    "capabilities": [
+      {
+        "method": "mcp.awake.tick",
+        "description": "Performs a single proactive check and decides if an action is needed."
+      }
+    ]
+  }

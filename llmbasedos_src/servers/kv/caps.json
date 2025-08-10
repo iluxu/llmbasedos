@@ -1,0 +1,44 @@
+{
+    "service_name": "kv",
+    "description": "Provides a lightweight key-value store interface on top of Redis.",
+    "version": "0.1.0",
+    "capabilities": [
+      {
+        "method": "mcp.kv.set",
+        "description": "Set a key-value pair with an optional TTL in seconds.",
+        "params_schema": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 3,
+          "prefixItems": [
+            { "type": "string", "description": "The key to set." },
+            { "description": "The value to store (can be any JSON-serializable type)." },
+            { "type": "integer", "description": "Optional time-to-live in seconds." }
+          ]
+        }
+      },
+      {
+        "method": "mcp.kv.get",
+        "description": "Get a value by its key.",
+        "params_schema": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "prefixItems": [{ "type": "string", "description": "The key to retrieve." }]
+        }
+      },
+      {
+        "method": "mcp.kv.incrby",
+        "description": "Increment an integer value for a key by a given amount.",
+        "params_schema": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            { "type": "string", "description": "The key of the counter." },
+            { "type": "integer", "description": "The amount to increment by." }
+          ]
+        }
+      }
+    ]
+  }
