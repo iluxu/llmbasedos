@@ -1,4 +1,8 @@
-# llmbasedos
+# llmbasedos — Local-First OS Where AI Agents Wake Up and Work
+
+most “ai agents” are fancy chatbots with a to-do list problem: they wait for you.
+
+llmbasedos flips it. it’s a local-first runtime where agents perceive, decide, and act — without asking permission — using any tool your machine can expose via the Model Context Protocol (MCP).
 
 `llmbasedos` isn't just another agent framework. It's a **runtime for autonomous agents**, designed to turn your machine into a proactive partner that can perceive, reason, and act.
 
