@@ -62,7 +62,6 @@ class CacheManager:
             self.logger.error(f"Redis SET error: {e}")
 
 
-# --- Gemini Provider ---
 class GeminiProvider:
     def __init__(self, server: MCPServer):
         self.server = server
@@ -73,11 +72,26 @@ class GeminiProvider:
         self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
 
     def _to_gemini_format(self, messages: list) -> list:
-        # Gemini a un format de message légèrement différent
         gemini_contents = []
+        # Gemini n'aime pas le rôle "system", on le transforme en "user"
+        # et on s'assure de ne pas avoir deux "user" d'affilée
+        system_prompt = ""
+        user_messages = []
         for msg in messages:
-            # Gemini n'aime pas le rôle "system", on le transforme en "user"
-            role = "user" if msg["role"] in ["user", "system"] else "model"
+            if msg["role"] == "system":
+                system_prompt += msg["content"] + "\n"
+            else:
+                user_messages.append(msg)
+        
+        if system_prompt:
+            # Préfixer le premier message utilisateur avec le prompt système
+            if user_messages and user_messages[0]["role"] == "user":
+                user_messages[0]["content"] = system_prompt + user_messages[0]["content"]
+            else:
+                user_messages.insert(0, {"role": "user", "content": system_prompt})
+
+        for msg in user_messages:
+            role = "user" if msg["role"] == "user" else "model"
             gemini_contents.append({"role": role, "parts": [{"text": msg["content"]}]})
         return gemini_contents
 
@@ -88,6 +102,7 @@ class GeminiProvider:
         return {
             "id": f"chatcmpl-gemini-{int(time.time())}",
             "object": "chat.completion",
+            "created": int(time.time()), # On utilise le temps actuel
             "model": model,
             "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
             "usage": {
@@ -98,18 +113,18 @@ class GeminiProvider:
         }
 
     async def execute_call(self, messages: list, options: dict):
-        model = options.get("model", "gemini-2.5-pro-preview-06-05")
+        model = options.get("model", "gemini-1.5-pro-latest")
         api_url = f"{self.base_url}/{model}:generateContent?key={self.api_key}"
         
         payload = {
             "contents": self._to_gemini_format(messages),
             "generationConfig": {
                 "temperature": options.get("temperature", 0.7),
-                "maxOutputTokens": options.get("max_tokens", 2048)
+                "maxOutputTokens": options.get("max_tokens", 4096)
             }
         }
         
-        self.logger.info(f"Calling Gemini at {self.base_url}/{model}...")
+        self.logger.info(f"Calling Gemini API with model: {model}")
         
         async with httpx.AsyncClient(timeout=300.0) as client:
             try:

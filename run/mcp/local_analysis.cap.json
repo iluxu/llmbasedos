@@ -1,0 +1,20 @@
+{
+    "service_name": "local_analysis",
+    "description": "Runs local analysis on a virtual file using a local LLM.",
+    "version": "0.1.0",
+    "capabilities": [
+        {
+            "method": "mcp.local_analysis.ask",
+            "description": "Reads a local file and asks a question to a local LLM about it.",
+            "params_schema": {
+                "type": "array",
+                "items": [
+                    {"type": "string", "description": "Virtual path to the file."},
+                    {"type": "string", "description": "Question to ask."}
+                ],
+                "minItems": 2,
+                "maxItems": 2
+            }
+        }
+    ]
+}

@@ -1,0 +1,55 @@
+{
+    "service_name": "arc_manager",
+    "description": "Manages the lifecycle of Arcs and Sentinels.",
+    "version": "0.1.0",
+    "capabilities": [
+        {
+            "method": "mcp.arc.create",
+            "description": "Creates the initial file structure for a new Arc.",
+            "params_schema": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "items": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "arc_name": { "type": "string", "description": "Unique name for the new Arc." },
+                            "specialty": { "type": "string", "description": "Domain specialty (e.g., turf, crypto)." }
+                        },
+                        "required": ["arc_name", "specialty"]
+                    }
+                ]
+            }
+        },
+        {
+            "method": "mcp.arc.list",
+            "description": "Lists all Arcs owned by the user (tenant).",
+            "params_schema": { "type": "array", "maxItems": 0 }
+        },
+        {
+            "method": "mcp.sentinel.list_public",
+            "description": "Lists all available Sentinels on the marketplace.",
+            "params_schema": { "type": "array", "maxItems": 0 }
+        },
+        {
+            "method": "mcp.sentinel.run",
+            "description": "Executes a public Sentinel for the current user.",
+            "params_schema": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "items": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "sentinel_id": { "type": "string" },
+                            "input_params": { "type": "object" }
+                        },
+                        "required": ["sentinel_id"]
+                    }
+                ]
+            }
+        }
+    ]
+}

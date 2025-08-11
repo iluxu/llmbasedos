@@ -1,0 +1,4 @@
+{
+    "service_name": "contextual_chat",
+    "capabilities": [ { "method": "mcp.contextual_chat.ask", "params_schema": { "type": "array", "minItems": 2, "maxItems": 2 } } ]
+}

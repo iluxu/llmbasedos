@@ -1,62 +1,50 @@
+# Fichier: docker-compose.dev.yml (Version finale, Cloud)
 version: '3.8'
 
 services:
-  paas: # <--- NOM SIMPLIFIÉ
+  paas:
     build:
       context: .
       dockerfile: Dockerfile.dev
-      args:
-        - DOCK-ER_GID=999
-    container_name: llmbasedos_dev # Le nom du conteneur peut rester le même
+    container_name: llmbasedos_dev
     volumes:
       - ./llmbasedos_src:/opt/app/llmbasedos_src:rw
       - ./supervisord.conf:/etc/supervisor/conf.d/llmbasedos.conf:ro
       - ./entrypoint.sh:/opt/app/entrypoint.sh:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/data:rw
-    depends_on:
-      - ollama
-      - redis
     networks:
       - llmbasedos-net
-    
-    # --- SECTION À METTRE À JOUR ---
     env_file:
-      - .env  # 1. Charge toutes les variables du fichier .env (GEMINI_API_KEY)
-
+      - .env # Charge MEMOBASE_URL et MEMOBASE_PROJECT_TOKEN
     environment:
-      # --- Variables pour les services internes ---
-      REDIS_HOST: redis
-      REDIS_PASSWORD: helloworld
-      OLLAMA_BASE_URL: "http://ollama:11434" # Bonne pratique de le définir ici
-      
-      # --- Variables pour le LLM Router ---
-      LLM_PROVIDER_BACKEND: "gemini"    # 2. C'est le "switch" qui dit au router d'utiliser Gemini
-      GEMINI_API_KEY: ${GEMINI_API_KEY} # 3. Passe la clé API lue depuis le .env dans le conteneur
-      
-      # --- Variables pour les Arcs (si besoin) ---
-      LLM_ROUTER_URL: "http://paas:8000/v1/chat/completions" # Gardez-la, elle est utile
-
-      # --- Variables de fallback (si on rebascule sur Ollama) ---
-      LOCAL_LLM: "llama3:8b" # On garde llama3, plus performant que gemma
-
+      - REDIS_HOST=redis
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - LLM_PROVIDER_BACKEND=gemini
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # Ces variables sont maintenant lues depuis le .env et passées aux Arcs
+      - MEMOBASE_URL=${MEMOBASE_URL}
+      - MEMOBASE_PROJECT_TOKEN=${MEMOBASE_PROJECT_TOKEN}
     ports:
       - "8000:8000"
     tty: true
-
+    depends_on:
+      - redis
+      - ollama
+      
   redis:
     image: redis:7-alpine
     container_name: llmbasedos_redis
-    command: redis-server --requirepass helloworld
+    command: redis-server --requirepass ${REDIS_PASSWORD}
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT}:6379"
     networks:
       - llmbasedos-net
 
   ollama:
     image: ollama/ollama:latest
     container_name: llmbasedos_ollama
-    entrypoint: ["ollama", "serve"]
     ports:
       - "11434:11434"
     volumes:

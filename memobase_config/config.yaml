@@ -1,11 +1,18 @@
-# ./memobase_config/config.yaml
-llm_base_url: "http://llmbasedos_paas:8000/v1"
-llm_api_key: "une-cle-dummy-ca-suffit"
+# MemoBase Configuration
+llm_api_key: "${MEMOBASE_LLM_API_KEY}"
+llm_base_url: "${MEMOBASE_LLM_BASE_URL}"
+llm_model: "gemini-1.5-pro-latest"
+best_llm_model: "gemini-1.5-pro-latest"
+thinking_llm_model: "gemini-1.5-pro-latest"
 
-# Utilisez un nom de modèle simple pour le sanity check.
-# Votre routeur le redirigera de toute façon.
-best_llm_model: "gpt-3.5-turbo"
-thinking_llm_model: "gpt-3.5-turbo"
+# Database
+database_url: "${DATABASE_URL}"
+redis_url: "${REDIS_URL}"
 
-# Très important : désactiver l'embedding au démarrage pour éviter les dépendances
+# Features
 enable_event_embedding: false
+llm_sanity_check: false
+
+# Server
+host: "0.0.0.0"
+port: 8019

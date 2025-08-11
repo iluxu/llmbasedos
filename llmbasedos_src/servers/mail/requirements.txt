@@ -4,3 +4,4 @@ icalendar>=5.0.0
 PyYAML>=6.0 # For loading account configurations from YAML
 # google-auth-oauthlib>=0.4.0 (if using Google OAuth2)
 # msal>=1.10.0 (if using Microsoft OAuth2)
+

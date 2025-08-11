@@ -1,98 +1,73 @@
 # syntax=docker/dockerfile:1.6
 
 # =========================================================
-# == STAGE 1: BUILDER - Build Python wheels once
+# == STAGE 1: BUILDER - Build Python wheels
 # =========================================================
 FROM python:3.10-slim AS builder
 LABEL stage=builder
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
-    PYTHONUNBUFFERED=1 \
-    APP_ROOT_DIR=/opt/app
+    PYTHONUNBUFFERED=1
 
-WORKDIR ${APP_ROOT_DIR}
+WORKDIR /opt/app
 
-# Install minimal system deps for Python packages
+# Install system deps needed for building python packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-dev \
-    curl \
-    libmagic1 \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    build-essential curl libmagic1 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# --- Base shared dependencies (common to all services) ---
-COPY llmbasedos_src/requirements.txt /tmp/reqs/base.txt
+# Copy all requirements files into one place
+COPY llmbasedos_src/ ./llmbasedos_src/
+RUN mkdir -p /tmp/reqs && \
+    find ./llmbasedos_src -name "requirements.txt" -exec cat {} + >> /tmp/reqs/all.txt
+
+# Install all dependencies into a wheelhouse
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/base.txt
-
-# --- Gateway ---
-COPY llmbasedos_src/gateway/requirements.txt /tmp/reqs/gateway.txt
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/gateway.txt
-
-# --- LLM Router ---
-COPY llmbasedos_src/servers/llm_router/requirements.txt /tmp/reqs/llm_router.txt
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/llm_router.txt
-
-# --- Memobase ---
-COPY llmbasedos_src/servers/memobase/requirements.txt /tmp/reqs/memobase.txt
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/memobase.txt
-
+    pip wheel --wheel-dir /tmp/wheels -r /tmp/reqs/all.txt
 
 # =========================================================
-# == STAGE 2: RUNTIME - Lightweight final image
+# == STAGE 2: RUNTIME - Final image
 # =========================================================
 FROM python:3.10-slim
-LABEL description="LLMbasedOS DEV image - Gateway, Router, Memobase only"
+LABEL description="LLMbasedOS DEV image - All services"
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    APP_ROOT_DIR=/opt/app \
-    HF_HOME=/data/hf_cache
+    APP_ROOT_DIR=/opt/app
 
 WORKDIR ${APP_ROOT_DIR}
 
 # Minimal runtime deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    supervisor \
-    curl \
-    libmagic1 \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    supervisor curl libmagic1 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Copy wheels from builder
+# Copy pre-built wheels from builder stage
 COPY --from=builder /tmp/wheels /tmp/wheels
+COPY --from=builder /tmp/reqs/all.txt /tmp/reqs/all.txt
 
-# Install only what's needed
-COPY llmbasedos_src/requirements.txt /tmp/reqs/base.txt
-RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/base.txt
-
-COPY llmbasedos_src/gateway/requirements.txt /tmp/reqs/gateway.txt
-RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/gateway.txt
-
-COPY llmbasedos_src/servers/llm_router/requirements.txt /tmp/reqs/llm_router.txt
-RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/llm_router.txt
-
-COPY llmbasedos_src/servers/memobase/requirements.txt /tmp/reqs/memobase.txt
-RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/memobase.txt
+# Install all dependencies from local wheels
+RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/reqs/all.txt
 
 # Cleanup
-RUN rm -rf /tmp/reqs /tmp/wheels
+RUN rm -rf /tmp/wheels /tmp/reqs
 
-# Create app user (no docker group here)
+# Create app user
 ARG APP_USER=llmuser
-RUN useradd -ms /bin/bash ${APP_USER} \
-    && mkdir -p /run/mcp /var/log/supervisor /data \
-    && chown -R ${APP_USER}:${APP_USER} ${APP_ROOT_DIR} /data /run/mcp
+RUN useradd -ms /bin/bash ${APP_USER} && \
+    mkdir -p /run/mcp /var/log/supervisor /data && \
+    chown -R ${APP_USER}:${APP_USER} ${APP_ROOT_DIR} /data /run/mcp
 
-# Copy application
+# Copy application code and configs
+# This will be overwritten by the volume mount in dev, which is what we want.
 COPY ./llmbasedos_src ${APP_ROOT_DIR}/llmbasedos_src
 COPY ./supervisord.conf /etc/supervisor/conf.d/llmbasedos.conf
 COPY ./entrypoint.sh /opt/app/entrypoint.sh
 RUN chmod +x /opt/app/entrypoint.sh
 
 ENV PYTHONPATH=/opt/app
+
+USER ${APP_USER} # Run as non-root user
 
 ENTRYPOINT ["/opt/app/entrypoint.sh"]
 CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/conf.d/llmbasedos.conf"]

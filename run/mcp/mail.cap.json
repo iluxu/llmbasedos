@@ -1,0 +1,142 @@
+{
+    "service_name": "mail",
+    "description": "Interacts with email accounts via IMAP and iCalendar.",
+    "version": "0.1.1",
+    "capabilities": [
+        {
+            "method": "mcp.mail.listAccounts",
+            "description": "Lists configured email accounts.",
+            "params_schema": { "type": "array", "maxItems": 0 },
+            "result_schema": {
+                "type": "array", "items": {
+                    "type": "object", "properties": {
+                        "account_id": {"type": "string"}, "email_address": {"type": "string"},
+                        "type": {"type": "string", "enum": ["imap"]}
+                    }, "required": ["account_id", "email_address", "type"]
+                }
+            }
+        },
+        {
+            "method": "mcp.mail.listFolders",
+            "description": "Lists mail folders for an account.",
+            "params_schema": { "type": "array", "minItems": 1, "maxItems": 1, "items": [{"type": "string", "description": "account_id"}]},
+            "result_schema": {
+                "type": "array", "items": {
+                    "type": "object", "properties": {
+                        "name": {"type": "string"}, "path": {"type": "string"},
+                        "flags": {"type": "array", "items": {"type": "string"}}
+                    }, "required": ["name", "path", "flags"]
+                }
+            }
+        },
+        {
+            "method": "mcp.mail.listMessages",
+            "description": "Lists messages in a folder.",
+            "params_schema": {
+                "type": "array", "minItems": 2, "maxItems": 3, "items": [
+                    {"type": "string", "description": "account_id"},
+                    {"type": "string", "description": "folder_name/path"},
+                    {"type": "object", "optional": true, "properties": {
+                        "limit": {"type": "integer", "default": 25},
+                        "search_criteria": {"type": "string", "default": "ALL", "description": "IMAP search criteria string."}
+                    }}
+                ]
+            },
+            "result_schema": {
+                "type": "array", "items": {
+                    "type": "object", "properties": {
+                        "uid": {"type": "integer"}, "subject": {"type": "string"},
+                        "from": {"type": "array", "items": {"type": "string"}},
+                        "to": {"type": "array", "items": {"type": "string"}},
+                        "date": {"type": ["string", "null"], "format": "date-time"},
+                        "seen": {"type": "boolean"}, "has_attachments": {"type": "boolean"}
+                    }, "required": ["uid", "subject", "from", "date", "seen", "has_attachments"]
+                }
+            }
+        },
+        {
+            "method": "mcp.mail.send_email",
+            "description": "Sends an email using a configured account.",
+            "params_schema": {
+                "type": "array",
+                "prefixItems": [  
+                    {
+                        "type": "object",
+                        "properties": {
+                            "account_id": {"type": "string", "description": "The ID of the sending account configured in mail_accounts.yaml."},
+                            "to": {"type": "string", "description": "Recipient email address(es), comma-separated if multiple."},
+                            "subject": {"type": "string", "description": "Subject of the email."},
+                            "body": {"type": "string", "description": "Body of the email (plain text)."}
+                          
+                        },
+                        "required": ["account_id", "to", "subject", "body"],
+                        "additionalProperties": false 
+                    }
+                ],
+                "minItems": 1, 
+                "maxItems": 1,
+                "items": false 
+            },
+            "result_schema": { 
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": ["success", "failed"]},
+                    "recipient": {"type": "string"},
+                    "message_id": {"type": ["string", "null"], "description": "Message-ID from SMTP server if available."},
+                    "error_message": {"type": ["string", "null"], "description": "Error message if status is 'failed'."}
+                },
+                "required": ["status", "recipient"]
+            }
+        },
+        {
+            "method": "mcp.mail.getMessage",
+            "description": "Retrieves a specific message.",
+            "params_schema": {
+                "type": "array", "minItems": 3, "maxItems": 4, "items": [
+                    {"type": "string", "description": "account_id"},
+                    {"type": "string", "description": "folder_name/path"},
+                    {"type": "integer", "description": "message UID"},
+                    {"type": "object", "optional": true, "properties": {
+                        "body_preference": {"type": "array", "items": {"type": "string", "enum": ["text/plain", "text/html"]}, "default": ["text/plain", "text/html"]},
+                        "fetch_attachments": {"type": "boolean", "default": false},
+                        "max_attachment_size_inline_kb": {"type": "integer", "default": 1024, "description": "Max attachment size (KB) to include base64 encoded in response."}
+                    }}
+                ]
+            },
+            "result_schema": {
+                "type": "object", "properties": {
+                    "uid": {"type": "integer"}, "subject": {"type": "string"},
+                    "from": {"type": "array", "items": {"type": "string"}},
+                    "to": {"type": "array", "items": {"type": "string"}},
+                    "cc": {"type": "array", "items": {"type": "string"}, "optional": true},
+                    "date": {"type": ["string", "null"], "format": "date-time"},
+                    "headers": {"type": "object", "additionalProperties": {"type": "string"}},
+                    "body_plain": {"type": ["string", "null"]}, "body_html": {"type": ["string", "null"]},
+                    "attachments": {"type": "array", "optional": true, "items": {
+                        "type": "object", "properties": {
+                            "filename": {"type": "string"}, "mime_type": {"type": "string"},
+                            "size": {"type": "integer"}, "content_id": {"type": ["string", "null"]},
+                            "content_base64": {"type": ["string", "null"], "description": "Base64 content or 'CONTENT_TOO_LARGE_OR_NOT_FETCHED'."}
+                        }, "required": ["filename", "mime_type", "size"]
+                    }}
+                }, "required": ["uid", "subject", "from", "to", "date", "headers"]
+            }
+        },
+        {
+            "method": "mcp.mail.parseIcalendar",
+            "description": "Parses iCalendar data string.",
+            "params_schema": { "type": "array", "minItems": 1, "maxItems": 1, "items": [{"type": "string", "description": "iCalendar data string."}]},
+            "result_schema": {
+                "type": "array", "items": {
+                    "type": "object", "description": "Calendar component details.",
+                    "properties": { 
+                        "type": {"type": "string"}, "summary": {"type": ["string", "null"]},
+                        "dtstart": {"type": ["string", "null"], "format": "date-time"},
+                        "dtend": {"type": ["string", "null"], "format": "date-time"}
+                       
+                    }
+                }
+            }
+        }
+    ]
+}

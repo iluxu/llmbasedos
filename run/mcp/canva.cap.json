@@ -1,0 +1,19 @@
+{
+    "service_name": "canva",
+    "description": "A bridge to the Canva Dev MCP server for AI-powered development assistance.",
+    "version": "0.1.0",
+    "capabilities": [
+        {
+            "method": "mcp.canva.ask",
+            "description": "Sends a query to the Canva Dev MCP server. Include keywords like 'App UI Kit' or 'Apps SDK'.",
+            "params_schema": {
+                "type": "array",
+                "prefixItems": [
+                    { "type": "string", "description": "The natural language query for the Canva assistant." }
+                ],
+                "minItems": 1,
+                "maxItems": 1
+            }
+        }
+    ]
+}

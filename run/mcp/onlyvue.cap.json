@@ -1,0 +1,33 @@
+{
+    "service_name": "onlyvue",
+    "description": "Connector to OnlyVue platform for chat and actions.",
+    "version": "0.1.0",
+    "capabilities": [
+      {
+        "method": "mcp.onlyvue.get_chat_history",
+        "description": "Gets recent chat history for a user.",
+        "params_schema": {
+          "type": "array",
+          "prefixItems": [{ "type": "string", "description": "User ID" }],
+          "minItems": 1,
+          "maxItems": 1,
+          "items": false
+        }
+      },
+      {
+        "method": "mcp.onlyvue.send_message",
+        "description": "Sends a message to a specific user.",
+        "params_schema": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "string", "description": "User ID" },
+            { "type": "string", "description": "Message text" }
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "items": false
+        }
+      }
+    ]
+  }
+  

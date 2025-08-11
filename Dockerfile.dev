@@ -1,9 +1,10 @@
+# Fichier: Dockerfile.dev (Version finale avec la correction de permissions)
 # syntax=docker/dockerfile:1.6
 
 # =========================================================
-# == STAGE 1: BUILDER - Pré-construction des dépendances
+# == STAGE 1: BUILDER
 # =========================================================
-FROM python:3.10-slim AS builder
+FROM python:3.11-slim AS builder
 LABEL stage=builder
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -12,64 +13,53 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
 
 WORKDIR ${APP_ROOT_DIR}
 
-# Dépendances système minimales pour la compilation
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-dev \
-    curl \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    build-essential python3-dev curl && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# --- Dépendances Python communes à tous les services ---
-# On regroupe tout dans un seul fichier pour optimiser les couches Docker
+# --- Copier et concaténer les requirements ---
 COPY llmbasedos_src/requirements.txt /tmp/reqs/base.txt
 COPY llmbasedos_src/gateway/requirements.txt /tmp/reqs/gateway.txt
 COPY llmbasedos_src/servers/llm_router/requirements.txt /tmp/reqs/llm_router.txt
-COPY llmbasedos_src/servers/memobase/requirements.txt /tmp/reqs/memobase.txt
 COPY llmbasedos_src/shell/requirements.txt /tmp/reqs/shell.txt
 COPY llmbasedos_src/servers/kv/requirements.txt /tmp/reqs/kv.txt
-# NOTE: Le service 'file' n'a pas de requirements.txt, donc on ne le copie pas
+COPY llmbasedos_src/servers/mail/requirements.txt /tmp/reqs/mail.txt
+COPY llmbasedos_src/servers/orchestrator/requirements.txt /tmp/reqs/orchestrator.txt
+COPY llmbasedos_src/servers/executor/requirements.txt /tmp/reqs/executor.txt 
+COPY llmbasedos_src/servers/contextual_chat/requirements.txt /tmp/reqs/contextual_chat.txt
 
-# Concaténer tous les requirements en un seul pour une seule commande `pip wheel`
-RUN cat /tmp/reqs/*.txt > /tmp/requirements.txt
+RUN for f in /tmp/reqs/*.txt; do if [ -f "$f" ]; then cat "$f"; echo; fi; done > /tmp/requirements.txt
 
-# Construire toutes les "wheels" en une seule fois pour maximiser le cache
+# Construire les "wheels"
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip wheel --wheel-dir /tmp/wheels -r /tmp/requirements.txt
 
-
 # =========================================================
-# == STAGE 2: RUNTIME - Image de développement finale
+# == STAGE 2: RUNTIME
 # =========================================================
-FROM python:3.10-slim
+FROM python:3.11-slim
 LABEL description="LLMbasedOS DEV image"
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    APP_ROOT_DIR=/opt/app \
-    PYTHONPATH=/opt/app
-
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 APP_ROOT_DIR=/opt/app PYTHONPATH=/opt/app
 WORKDIR ${APP_ROOT_DIR}
 
-# Dépendances système nécessaires au runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    supervisor \
-    curl \
-    libmagic1 \
-    gosu \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    supervisor curl libmagic1 gosu && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Copier les wheels pré-construites
 COPY --from=builder /tmp/wheels /tmp/wheels
 COPY --from=builder /tmp/requirements.txt /tmp/requirements.txt
 
-# Installer toutes les dépendances en une seule commande
+# Installer toutes les dépendances en tant que root
 RUN pip install --no-index --find-links=/tmp/wheels -r /tmp/requirements.txt
 
-# Nettoyage
 RUN rm -rf /tmp/wheels /tmp/requirements.txt
 
+# --- LA CORRECTION EST ICI ---
+# On s'assure que le dossier des librairies est lisible par tous les utilisateurs
+RUN chmod -R o+r /usr/local/lib/python3.11/site-packages
+
 # --- Utilisateur et Permissions ---
-# On passe le GID du groupe Docker de l'hôte pour éviter les problèmes de permissions
 ARG DOCKER_GID=999
 ARG APP_USER=llmuser
 
@@ -80,7 +70,6 @@ RUN groupadd -g ${DOCKER_GID} docker && \
     chown -R ${APP_USER}:${APP_USER} /data /run/mcp
 
 # --- Scripts et Commande d'Exécution ---
-# Ces fichiers seront montés par docker-compose, ceci est un fallback
 COPY ./entrypoint.sh /opt/app/entrypoint.sh
 RUN chmod +x /opt/app/entrypoint.sh
 
