@@ -1,0 +1,28 @@
+/* Fichier: style.css (Version finale et fiable) */
+
+/* Le conteneur principal qui contient les deux logs */
+#main-container {
+    height: 1fr; /* Prend toute la hauteur disponible */
+    padding: 1;
+    padding-bottom: 0;
+}
+
+/* Le log du chat à gauche */
+#chat-log {
+    width: 2fr; /* Prend 2/3 de la largeur */
+    border: round blue; /* Une bordure simple et valide */
+    margin-right: 1;
+}
+
+/* Le log de la mémoire à droite */
+#memory-feed {
+    width: 1fr; /* Prend 1/3 de la largeur */
+    border: round gray; /* Une bordure simple et valide */
+}
+
+/* Le champ de saisie en bas */
+#chat-input {
+    dock: bottom;
+    height: 3;
+    margin: 1;
+}
