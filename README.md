@@ -1,114 +1,118 @@
-# llmbasedos — Local-First OS Where AI Agents Wake Up and Work
+LLMbasedOS — Local first runtime for tool-using AI agents
 
-most “ai agents” are fancy chatbots with a to-do list problem: they wait for you.
+LLMbasedOS lets you run AI agents on your own machine with explicit, narrow permissions. Everything runs locally by default. No background monitoring. No hidden capabilities. You decide which tools exist, what they can see, and when they run.
 
-llmbasedos flips it. it’s a local-first runtime where agents perceive, decide, and act — without asking permission — using any tool your machine can expose via the Model Context Protocol (MCP).
+Why this exists
 
-`llmbasedos` isn't just another agent framework. It's a **runtime for autonomous agents**, designed to turn your machine into a proactive partner that can perceive, reason, and act.
+Most people want help from AI without giving up privacy or control. LLMbasedOS provides a small, observable runtime that executes on your computer, inside containers, with clear boundaries. If a tool is not enabled, it does not exist. If a folder is not mounted, it is invisible.
 
-It achieves this through the **Model Context Protocol (MCP)**: a simple, powerful JSON-RPC layer that exposes all system capabilities—local LLMs, KV stores, web browsers, publishing APIs—as plug-and-play tools called **Arcs**.
+Trust and safety
+	•	Local first. Services run in Docker on Windows, macOS, and Linux.
+	•	Narrow scope. Agents only see the folders you mount. The demo mounts the bundled data folder.
+	•	No ambient tracking. Nothing watches your activity. Agents act only when you ask.
+	•	Explicit tools. Capabilities are small MCP tools you enable by name. No tool, no power.
+	•	Local model by default. Works with Ollama on your machine. Cloud models are opt in.
+	•	Full stop anytime. Stop the stack in Docker Desktop. Your system is unchanged outside the mounted folder.
 
-The vision is to make agentivity real: empower AI **Sentinels** to execute complex, multi-step missions on your behalf with minimal friction and maximum autonomy.
+MCP in plain words
 
-> llmbasedos is what happens when you stop asking "how can I call a LLM?" and start asking "what if a LLM could call *everything else*?"
+Think of MCP as a toolbox with labeled drawers. Each drawer is a tool with a clear contract: a name, inputs, and outputs. An agent cannot invent new drawers. When you type a command, the agent asks the gateway to open a specific drawer. The gateway logs the request, forwards it to the tool process, and returns only the defined result. Since the container mounts only the paths you choose, a file tool can read or write only there. New powers appear only if you add and enable a new tool and mount extra paths on purpose.
 
----
+What ships by default
+	•	Gateway: routes requests to tools and logs calls.
+	•	LLM router: sends prompts to your chosen backend, local by default.
+	•	Contextual chat: short lived context for conversations.
+	•	Key value store: simple memory for demos.
+	•	File tool: read and write inside the mounted data folder.
 
-## ✨ What Makes llmbasedos Different?
+Not included by default: email sender, host shell executor, screen or keyboard access, system installers, network scanners.
 
-*   🤖 **Truly Autonomous Agents ("Sentinels")**: Sentinels aren't just reactive chatbots. They have an "Awake" Arc, allowing them to proactively think, plan, and act based on events or internal triggers.
-*   🧠 **LLM-Agnostic & Local-First**: The built-in `llm_router` intelligently routes requests to any backend—local Ollama, Gemini, OpenAI—based on policies you define. Privacy and offline capability are built-in, not afterthoughts.
-*   📜 **LLM-Generated Plans (TOML, not YAML)**: Missions are defined in clean, human-readable TOML files called "Quests." A Sentinel can draft its own Quest using a LLM, which you can then approve and run.
-*   🔌 **Lightweight, Composable Arcs**: Every tool is a simple, standalone MCP microservice. Forget monolithic agents; here, you build Sentinels by composing lightweight, single-purpose Arcs.
+Quick start
 
----
+Requirements
+	•	Windows 11 with Docker Desktop and WSL 2 enabled, or
+	•	macOS with Docker Desktop, or
+	•	Linux with Docker Engine and Docker Compose
 
-## 🚀 Core Architecture
+Steps
+	1.	Download the release zip and unzip it.
+	2.	Open a terminal in the unzipped folder.
+	3.	Start the stack:
 
-*   **Docker-First Infrastructure**: Core services (`redis`, `ollama`, etc.) are managed via `docker-compose`.
-*   **Supervisord-Managed Arcs**: All Arcs (MCP servers) run as independent processes inside a single container, managed by `supervisord` for resilience.
-*   **Gateway**: A central FastAPI server that routes all external (WebSocket) and internal (UNIX Socket) MCP traffic.
-*   **LLM Router**: The intelligent switchboard that selects the right LLM for the job based on cost, privacy, and purpose (`rank`, `copy`, `chat`).
-*   **`luca-run` & `luca-shell`**: Your command center. A REPL and a non-interactive client for inspecting, debugging, and commanding your Sentinels.
+docker compose -f docker-compose.pc.yml up -d --build
 
- <!-- Suggestion: Create a simple Mermaid diagram and upload it -->
 
----
+	4.	Pull a local model once:
 
-## 🤖 The Magic: An Autonomous Sentinel in Action
+docker exec -it llmbasedos_ollama ollama pull gemma:2b
 
-Instead of writing complex Python scripts, you witness the system work. Here’s the "Quick Money" Sentinel's autonomous loop:
 
-1.  **Awakening**: The `awake` Arc "thinks" and decides it's time to act. It calls the `llm_router`.
-2.  **Ideation**: It asks Gemini/Llama3 for a single, trending SEO topic.
-    > *"Give me one specific, trending topic for a crypto beginner's blog."*
-3.  **Action**: It calls the `seo_affiliate` Arc with the new topic.
-4.  **Creation**: The `seo_affiliate` Arc uses the LLM to write a complete, SEO-optimized article (title, meta, FAQ, schema.org) and generates the static HTML files.
-5.  **Result**: A new, ready-to-publish mini-site is created in the `/data/sites` directory.
+	5.	Open the interactive console:
 
-All of this happens with **zero human intervention**, triggered by a single `tick`.
+docker exec -it llmbasedos_pc python -m llmbasedos_src.shell.luca
 
----
+You should see a prompt like:
 
-## 🔧 Quick Start Guide (Dev Environment)
+/ [default_session] luca>
 
-1.  **Prerequisites**: Docker & Docker Compose.
-2.  **Clone the Repo**:
-    ```bash
-    git clone https://github.com/your-username/llmbasedos.git
-    cd llmbasedos
-    ```
-3.  **Configuration**:
-    *   Create a `.env` file from the example.
-    *   Add your `GEMINI_API_KEY` if you want to use Gemini.
-4.  **Launch Infrastructure & Arcs**:
-    ```bash
-    # This command handles Docker permissions for you
-    DOCKER_GID=$(getent group docker | cut -d: -f3)
-    docker compose -f docker-compose.dev.yml build --build-arg DOCKER_GID=$DOCKER_GID
-    docker compose -f docker-compose.dev.yml up -d
-    ```
-5.  **Test the KV Arc**:
-    ```bash
-    # Connect to the shell as the correct user
-    docker exec -it --user llmuser llmbasedos_dev python -m llmbasedos_src.shell.luca
+Exit with exit.
 
-    # Inside luca-shell, test the KV store
-    mcp.kv.set '["hello", "world"]'
-    mcp.kv.get '["hello"]'
-    ```
-6.  **Trigger the Autonomous Sentinel**:
-    *   From your host machine (not in the shell), run the ticker:
-        ```bash
-        ./ticker.sh
-        ```
-    *   Watch the logs and see a new site appear in the `./data/sites` directory!
+	6.	Stop the stack when you are done:
 
----
+docker compose -f docker-compose.pc.yml down
 
-## 🧬 Roadmap: The Adoptan.ai Marketplace
 
-`llmbasedos` is the engine. **Adoptan.ai** is the destination.
 
-The next milestone is to build a marketplace where developers can submit, certify, and sell/lease their Arcs and Sentinels.
-*   **Sentinel Gauntlet**: An automated certification process to ensure Arcs are secure, efficient, and reliable.
-*   **Composable Economy**: Users can acquire new Arcs to upgrade their Sentinels, or lease fully-trained, specialized Sentinels for specific missions (trading, lead-gen, social media).
+Safety first settings
 
----
+You control scope at the container boundary. These settings are simple and effective.
+	•	Read only data mount
+In docker-compose.pc.yml, change ./data:/data:rw to ./data:/data:ro.
+	•	Local only model
+In .env, set LLM_PROVIDER_BACKEND=ollama and do not add cloud keys.
+	•	No network for the app (optional)
+Set network_mode: "none" on the app service if you want a fully offline run after the model is pulled.
 
-## 🧠 Who is llmbasedos For?
+Visibility and control
+	•	Tools are listed in config. If a tool is not listed, it does not run.
+	•	Calls are logged by the gateway and by each tool process.
+	•	The app can read or write only inside the mounted paths you control.
+	•	Start, stop, and remove containers from Docker Desktop at any time.
 
-*   **Indie Hackers** who want to build AI-powered businesses, not just chatbot features.
-*   **Developers** tired of wrestling with complex agent frameworks and YAML.
-*   **Researchers** who need a stable, observable runtime to experiment with agent autonomy.
+FAQ
 
----
+Can it see my other files
+No. It only sees what you mount. The demo mounts the bundled data folder.
 
-## 🌐 Technologies Used
+Does anything run by itself
+No. There is no background monitoring. Agents act when you ask them to. Scheduled jobs are off by default and must be created explicitly.
 
-*   Python 3.10+, FastAPI, Supervisord
-*   Docker, Docker Compose
-*   **MCP**: JSON-RPC over UNIX Sockets & WebSockets
-*   **LLMs**: Ollama (Llama3, Gemma), Gemini
-*   **Data**: Redis (KV Store), Memobase (Contextual Memory)
-*   **Plans**: TOML
+Can it send my documents to the internet
+Not unless you opt in to a cloud model or enable a network tool. The default setup uses a local model with no external calls.
+
+Can it execute system commands on my host
+No. There is no host shell tool in the default setup. Adding such a tool would require an explicit change and is not recommended for sensitive machines.
+
+What happens if I remove it
+Use Docker Desktop or docker compose down. The stack stops and your computer is unchanged outside the mounted folder.
+
+Terms
+	•	Agent: the decision loop that asks for tools by name.
+	•	Tool: a small MCP server exposing one capability with a strict contract.
+	•	Gateway: the mediator that routes and logs tool calls.
+	•	Plan: a simple, human readable task file that chains tool calls.
+	•	Router: picks the configured LLM backend, local by default.
+
+Who this is for
+	•	Privacy sensitive users who want AI help without giving up control.
+	•	Teams that need offline or on prem workflows.
+	•	Developers and researchers who want observable, reproducible agent runs.
+
+Roadmap
+	•	More first party tools with clear permissions and tests.
+	•	Signed tool bundles and manifest based install.
+	•	Policy layer for tool whitelists and read only mounts by default.
+
+Contact
+
+Questions or concerns: open an issue on GitHub or email luca@llmbasedos.com.
